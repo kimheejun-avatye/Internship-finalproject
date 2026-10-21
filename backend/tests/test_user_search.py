@@ -1,15 +1,20 @@
 """같은 팀 동료 검색 GET /api/users/search."""
 
+import pytest
 from conftest import signin
 
 from app.db.session import SessionLocal
 from app.models import Team, User
 
 
-def search(client, **params):
+def page(client, **params):
     r = client.get("/api/users/search", params=params)
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def search(client, **params):
+    return page(client, **params)["items"]
 
 
 def test_login_is_required(client):
@@ -84,3 +89,46 @@ def test_limit_bounds(client, seed):
     assert len(search(client, limit=5)) == 5
     assert client.get("/api/users/search", params={"limit": 51}).status_code == 422
     assert client.get("/api/users/search", params={"limit": 0}).status_code == 422
+
+
+def test_cursor_pages_through_all_teammates(client, seed):
+    """이름이 같은 사람이 있어도 페이지를 넘기며 빠짐·중복 없이 전원 나온다."""
+    seed()
+    expected = []
+    for i in range(7):
+        # 같은 이름 두 명씩: user_id 로 순서가 정해져야 한다
+        uid = seed(f"user{i}@example.com", name=f"동료{i // 2}")
+        expected.append(uid)
+    signin(client)
+
+    seen, cursor = [], None
+    while True:
+        params = {"limit": 3, **({"cursor": cursor} if cursor else {})}
+        result = page(client, **params)
+        seen += [u["user_id"] for u in result["items"]]
+        cursor = result["next_cursor"]
+        if cursor is None:
+            break
+    assert len(seen) == 7
+    assert sorted(seen) == sorted(str(uid) for uid in expected)
+
+
+def test_last_page_has_no_cursor(client, seed):
+    seed()
+    seed("kim@example.com", name="김민수")
+    signin(client)
+
+    assert set(page(client)) == {"items", "next_cursor"}
+    assert page(client)["next_cursor"] is None
+    # 딱 limit 명이면 다음 페이지가 없다
+    assert page(client, limit=1)["next_cursor"] is None
+
+
+@pytest.mark.parametrize("cursor", ["not-base64!", "bm90LWpzb24", "WzFd", "WyJhIiwgIngiXQ"])
+def test_invalid_cursor_is_rejected(client, seed, cursor):
+    seed()
+    signin(client)
+
+    r = client.get("/api/users/search", params={"cursor": cursor})
+    assert r.status_code == 400
+    assert r.json()["detail"]["code"] == "USER_CURSOR_INVALID"

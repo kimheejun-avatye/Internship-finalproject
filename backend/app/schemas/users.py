@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,3 +14,9 @@ class UserSearchOut(BaseModel):
     name: str
     email: str
     team: Team
+
+
+class UserSearchPageOut(BaseModel):
+    items: list[UserSearchOut]
+    # 다음 요청의 cursor 값. 더 없으면 None
+    next_cursor: Optional[str]
