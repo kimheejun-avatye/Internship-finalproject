@@ -45,6 +45,8 @@ class Settings:
         self.max_failed_attempts = _int("MAX_FAILED_ATTEMPTS", 5)
         self.lock_seconds = _int("LOCK_SECONDS", 900)
         self.signup_token_ttl_seconds = _int("SIGNUP_TOKEN_TTL_SECONDS", 900)
+        # 관리자가 회의실을 차단하면 이 시간 동안 이용할 수 없다
+        self.room_block_minutes = _int("ROOM_BLOCK_MINUTES", 60)
 
     @property
     def database_url(self) -> URL:

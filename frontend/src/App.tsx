@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
 import AuthLayout from "./layouts/AuthLayout";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import AdminRoute from "./auth/AdminRoute";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import PasswordResetPage from "./pages/auth/PasswordResetPage";
@@ -21,7 +22,9 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/reservations" element={<ReservationPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route element={<AdminRoute />}>
+          <Route path="/admin" element={<AdminPage />} />
+        </Route>
         <Route path="/profile" element={<ProfilePage />} />
       </Route>
     </Route>

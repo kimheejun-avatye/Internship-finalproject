@@ -11,6 +11,10 @@
 .table td { padding: 18px 24px; border-top: 1px solid var(--border); font-size: 15px; }
 .table td.strong { font-weight: 700; }
 .table .action { color: var(--primary); border: 0; background: none; font-size: 13px; font-weight: 700; padding: 0; margin-right: 12px; }
+.table .action:disabled { color: var(--muted); cursor: not-allowed; }
+.table td.empty { color: var(--muted); text-align: center; }
+.chip.muted { background: #f1f3f4; color: var(--muted); }
+.admin-error { margin-bottom: 20px; padding: 14px 18px; border-radius: var(--radius); background: #fce8e6; color: #c5221f; font-size: 14px; }
 .member { display: flex; align-items: center; gap: 16px; }
 .avatar { width: 48px; height: 48px; border-radius: 16px; background: var(--primary-tint); color: var(--primary); display: grid; place-items: center; }
 .member .name { font-weight: 700; font-size: 16px; }

@@ -1,5 +1,36 @@
 # 회의실 예약 — 로그인과 developer 통합
 
+## 로컬 실행
+
+Python 3.10 이상, Node.js, Docker가 필요하다.
+
+```bash
+cp .env.example .env              # 처음 한 번. SECRET_KEY는 32자 이상 임의 값
+docker compose up -d
+bash backend/scripts/migrate.sh   # 새 코드를 받을 때마다 실행
+
+cd backend
+python -m scripts.seed            # 테스트 계정·회의실 생성
+uvicorn app.main:app --reload --port 8000
+
+cd frontend
+npm run dev                       # http://localhost:5173
+```
+
+- 백엔드는 8000 포트여야 한다. 프론트가 `/api` 요청을 8000으로 넘긴다.
+- `docker compose up -d`는 PostgreSQL과 Redis를 함께 실행한다. 기존 `.env`에도 `.env.example`의 `REDIS_PORT`, `REDIS_PASSWORD`를 추가한다.
+- Redis는 기본 `127.0.0.1:6379`에서 `.env`의 `REDIS_PASSWORD`로 접속한다. 데이터는 `redis_data` 볼륨에 AOF로 보존한다.
+- `.env`에 SMTP 계정이 없으면 회원가입 인증번호는 메일 대신 백엔드 터미널에 출력된다.
+
+### 관리자 계정
+
+회원가입은 항상 승인 대기 일반 회원으로 들어오므로, 첫 관리자는 스크립트로 만든다. DB가 PC마다 따로라 각자 한 번씩 만든다.
+
+- 테스트용: `python -m scripts.seed` → `qa-admin@example.com` / `Qa12345!`
+- 원하는 이메일: `python -m scripts.create_admin <이메일>` (비밀번호는 실행 중 입력. 이미 가입한 계정이면 비밀번호는 유지하고 관리자로 바꾼다)
+
+관리자 기능 QA 순서는 [관리자 QA 가이드](docs/collaboration/admin-qa.md)를 따른다.
+
 작업 폴더는 login-only, 브랜치는 codex/login-only다. 회원가입·세션 로그인 전용 e087f49에 developer d686b4f를 머지했다. main과 별도 teamproject1 폴더의 codex/login은 변경하지 않는다. 사용자 요청에 따라 검증한 통합 결과를 developer에 반영한다.
 
 ## 로그인 후 이동

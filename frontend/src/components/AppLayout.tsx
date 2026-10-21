@@ -7,12 +7,13 @@ import Logo from "./Logo";
 const MENU = [
   { to: "/reservations", label: "예약하기" },
   { to: "/calendar", label: "캘린더" },
-  { to: "/admin", label: "관리자" },
+  { to: "/admin", label: "관리자", adminOnly: true },
   { to: "/profile", label: "비밀번호 변경" },
 ];
 
 export default function AppLayout() {
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
+  const menu = MENU.filter((item) => !item.adminOnly || session?.user.role === "ADMIN");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function exit() {
@@ -30,7 +31,7 @@ export default function AppLayout() {
       <div className="app-body">
         <aside className="sidebar">
           <nav>
-            {MENU.map((item) => (
+            {menu.map((item) => (
               <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "active" : "")}>
                 {item.label}
               </NavLink>

@@ -14,6 +14,7 @@ from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.users import User
+from app.services import room_blocks
 from app.schemas.reservations import (
     CalendarQuery,
     CalendarReservationResponse,
@@ -66,6 +67,10 @@ class ReservationService:
                 raise ApiError(400, "START_IN_PAST", "시작 시각은 과거일 수 없습니다.")
             if self.db.get(User, user_id) is None:
                 raise ApiError(404, "USER_NOT_FOUND", "예약자를 찾을 수 없습니다.")
+
+            # 관리자가 일시 차단한 시간과 조금이라도 겹치면 예약할 수 없다.
+            if room_blocks.overlapping_blocks(self.db, room.room_id, data.start_at, data.end_at):
+                raise ApiError(409, "ROOM_BLOCKED", "관리자가 회의실을 차단한 시간과 겹칩니다.")
 
             conflict = self.db.scalar(
                 select(Reservation.reservation_id)

@@ -20,13 +20,13 @@ export class ApiError extends Error {
 
 const NETWORK_MESSAGE = "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.";
 
-export async function post<T>(path: string, body: unknown): Promise<T> {
+export async function request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     throw new ApiError(0, "NETWORK", NETWORK_MESSAGE);
@@ -53,3 +53,5 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
   }
   throw new ApiError(res.status, "ERROR", "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
 }
+
+export const post = <T>(path: string, body: unknown) => request<T>(path, "POST", body);
