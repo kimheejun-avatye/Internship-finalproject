@@ -33,7 +33,7 @@ class ChatRoomOut(BaseModel):
 class DirectRoomIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: uuid.UUID
+    target_user_id: uuid.UUID
 
 
 class GroupRoomIn(BaseModel):

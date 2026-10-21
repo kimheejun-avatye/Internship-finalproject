@@ -31,7 +31,7 @@ def open_direct(
     identity=Depends(authenticated, scope="function"),
     db=Depends(get_db),
 ):
-    room, created = chat.open_direct(db, identity[0], body.user_id)
+    room, created = chat.open_direct(db, identity[0], body.target_user_id)
     response.status_code = 201 if created else 200
     return room
 
