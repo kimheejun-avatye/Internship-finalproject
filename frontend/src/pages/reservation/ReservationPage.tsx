@@ -48,6 +48,7 @@ export default function ReservationPage() {
   const [start, setStart] = useState(() => inSeoul(defaultStart()));
   const [end, setEnd] = useState(() => inSeoul(new Date(defaultStart().getTime() + 30 * 60_000)));
   const [title, setTitle] = useState("");
+  // TODO: 날짜 선택 state, 가능 시간 슬롯 state(api.getAvailability), 선택 참여자 state 추가
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -192,6 +193,7 @@ export default function ReservationPage() {
           <button type="button" disabled={busy || page * data.page_size >= data.total}
             onClick={() => selectPage(roomId!, page + 1)}>다음 페이지</button>
         </nav>}
+        {/* TODO: 날짜 선택 + 가능 시간 슬롯 버튼. 클릭하면 setStart/setEnd로 아래 입력칸을 채운다. */}
         <form className="book-form" onSubmit={book}>
           <label>시작 (한국 시간)
             <input type="datetime-local" required value={start} disabled={busy}
@@ -205,6 +207,7 @@ export default function ReservationPage() {
             <input className="title-input" required value={title} disabled={busy}
               onChange={event => setTitle(event.target.value)} placeholder="회의 제목" />
           </label>
+          {/* TODO: 참여자 입력·선택 목록(사용자 검색 API는 채팅 쪽과 겹쳐 보류), 정원(room.capacity) 초과 안내 */}
           <button type="submit" className="btn" disabled={busy || loading}>{busy ? "예약 중..." : "예약하기"}</button>
           {error && <p role="alert" className="book-error">{error}</p>}
           {success && <p role="status" className="book-success">{success}</p>}
