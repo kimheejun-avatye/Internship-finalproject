@@ -12,5 +12,4 @@ from app.models.password_reset_verifications import PasswordResetVerification
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
-from app.models.slack_reminder import SlackReminder
 from app.models.user_sessions import UserSession

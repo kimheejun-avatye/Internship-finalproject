@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -84,6 +84,9 @@ class ReservationCreateIn(BaseModel):
     title: str
     start_at: AwareDatetime
     end_at: AwareDatetime
+    # 참여자 user_id 목록. 주최자는 자동으로 참석자에 포함되므로 넣지 않아도 된다. 다른 팀 사용자도 가능.
+    # TODO: 중복 제거와 최대 인원은 서비스 검사와 맞춘다.
+    attendee_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("title")
     @classmethod
@@ -112,3 +115,23 @@ class ReservationCreateOut(BaseModel):
     start_at: AwareDatetime
     end_at: AwareDatetime
     created_at: AwareDatetime
+
+
+# 가능 시간 조회 요청: 날짜 하루와 회의실을 지정한다.
+class AvailabilityQuery(BaseModel):
+    """한국 시간 기준 date 하루 동안 room_id 회의실의 예약 가능 구간을 묻는 요청."""
+
+    room_id: UUID
+    date: date_type
+    # 슬롯은 1시간 단위, 영업 시간 제한 없이 24시간 전체를 조회한다.
+    slot_minutes: int = Field(default=60, ge=60, le=60)
+
+
+# 시간 슬롯 하나: 화면에서 클릭하면 시작·종료 입력칸이 이 값으로 채워진다.
+class TimeSlotOut(BaseModel):
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    available: bool
+    # TODO: 불가 사유 구분이 필요하면 Literal["RESERVED", "BLOCKED", "PAST"] 등으로 제한한다.
+    reason: Optional[str] = None
+

@@ -1,5 +1,6 @@
 """예약 컨트롤러와 로그인 인증이 필요한 예약 HTTP API."""
 
+from datetime import date as date_type
 from typing import Annotated
 from uuid import UUID
 
@@ -12,12 +13,14 @@ from app.db.session import get_db
 from app.models.rooms import Room
 from app.models.users import User
 from app.schemas.reservations import (
+    AvailabilityQuery,
     CalendarQuery,
     CalendarReservationResponse,
     ReservationCreateIn,
     ReservationCreateOut,
     ReservationListOut,
     ReservationListQuery,
+    TimeSlotOut,
 )
 from app.schemas.rooms import RoomOut
 from app.services.reservations import ReservationService
@@ -40,6 +43,13 @@ class ReservationController:
             user_id=current_user.user_id,
             data=data,
         )
+
+    # 가능 시간 조회: 인증된 사용자에게 날짜·회의실별 슬롯을 제공한다.
+    def get_room_availability(
+        self, query: AvailabilityQuery, current_user: User
+    ) -> list[TimeSlotOut]:
+        """GET /rooms/{room_id}/availability. 계산은 서비스에 위임한다."""
+        return self.service.get_room_availability(query)
 
     # 캘린더 예약 조회: 조회 기간·필터와 인증 사용자 ID를 서비스에 전달한다.
     def get_calendar_reservations(
@@ -156,3 +166,17 @@ def get_calendar_rooms(
 ):
     response.headers["Cache-Control"] = "no-store"
     return controller.get_calendar_rooms(identity[0])
+
+
+# TODO: 가능 시간 조회. 날짜 형식 오류는 FastAPI가 422로 처리한다.
+@router.get("/rooms/{room_id}/availability", response_model=list[TimeSlotOut])
+def get_room_availability(
+    room_id: UUID,
+    date: date_type,
+    slot_minutes: int = Query(default=60, ge=60, le=60),
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    query = AvailabilityQuery(room_id=room_id, date=date, slot_minutes=slot_minutes)
+    return controller.get_room_availability(query, identity[0])
+
