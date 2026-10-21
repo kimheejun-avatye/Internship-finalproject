@@ -18,6 +18,8 @@ npm run dev                       # http://localhost:5173
 ```
 
 - 백엔드는 8000 포트여야 한다. 프론트가 `/api` 요청을 8000으로 넘긴다.
+- `docker compose up -d`는 PostgreSQL과 Redis를 함께 실행한다. 기존 `.env`에도 `.env.example`의 `REDIS_PORT`, `REDIS_PASSWORD`를 추가한다.
+- Redis는 기본 `127.0.0.1:6379`에서 `.env`의 `REDIS_PASSWORD`로 접속한다. 데이터는 `redis_data` 볼륨에 AOF로 보존한다.
 - `.env`에 SMTP 계정이 없으면 회원가입 인증번호는 메일 대신 백엔드 터미널에 출력된다.
 
 ### 관리자 계정
