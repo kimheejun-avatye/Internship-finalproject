@@ -1,10 +1,13 @@
+from app.models.chat_messages import ChatMessage
+from app.models.chat_room_members import ChatRoomMember
+from app.models.chat_rooms import ChatRoom, ChatRoomType
 from app.models.email_send_log import EmailSendLog
 from app.models.email_verifications import EmailVerification
 from app.models.room_blocks import RoomBlock
 from app.models.signup_check_log import SignupCheckLog
 from app.models.users import Role, Team, User
 
-__all__ = ["EmailSendLog", "EmailVerification", "Role", "Room", "RoomBlock", "SignupCheckLog", "Team", "User"]
+__all__ = ["ChatMessage", "ChatRoom", "ChatRoomMember", "ChatRoomType", "EmailSendLog", "EmailVerification", "Role", "Room", "RoomBlock", "SignupCheckLog", "Team", "User"]
 
 from app.models.login_attempts import LoginFailure, LoginIPRequest, LoginLock
 from app.models.password_reset_verifications import PasswordResetVerification
