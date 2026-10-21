@@ -1,6 +1,16 @@
 from fastapi import FastAPI
 
-from app.api.routes import admin, auth, chat, login, password, reservation, rooms, users, ws
+from app.api.routes import (
+    admin,
+    auth,
+    chat,
+    login,
+    password,
+    reservation,
+    rooms,
+    users,
+    ws,
+)
 from app.api.session_security import install_session_security
 from app.core.config import settings
 
