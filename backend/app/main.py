@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import admin, auth, login, password, reservation, rooms
+from app.api.routes import admin, auth, chat, login, password, reservation, rooms, users, ws
 from app.api.session_security import install_session_security
 from app.core.config import settings
 
@@ -14,6 +14,9 @@ app.include_router(login.router)
 app.include_router(password.router)
 app.include_router(reservation.router)
 app.include_router(admin.router)
+app.include_router(users.router)
+app.include_router(chat.router)
+app.include_router(ws.router)
 install_session_security(app)
 
 
