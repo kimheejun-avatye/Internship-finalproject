@@ -47,6 +47,7 @@ class User(Base):
     birth_date: Mapped[Optional[date]] = mapped_column(Date)
     phone: Mapped[Optional[str]] = mapped_column(Text)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    position: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     team: Mapped[Team] = mapped_column(Enum(Team, name="team_type"), nullable=False)
     role: Mapped[Role] = mapped_column(
         Enum(Role, name="role_type"), nullable=False, server_default=Role.MEMBER.value

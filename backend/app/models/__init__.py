@@ -1,3 +1,4 @@
+from app.models.chat_memo import Admin, ChatRoom, ChatRoomMember, Memo, Message
 from app.models.email_send_log import EmailSendLog
 from app.models.email_verifications import EmailVerification
 from app.models.room_blocks import RoomBlock
