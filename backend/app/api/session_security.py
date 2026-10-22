@@ -25,6 +25,7 @@ def owns_path(path):
         or path.startswith("/api/auth/password/")
         or path in {"/api/rooms", "/api/reservations"}
         or path.startswith("/api/rooms/")
+        or path.startswith("/api/reservations/")
     )
 
 

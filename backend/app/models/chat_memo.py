@@ -63,6 +63,7 @@ class Message(Base):
 
 class Memo(Base):
     __tablename__ = "memo"
+    __table_args__ = (UniqueConstraint("reservation_id", "user_id", name="uq_memo_reservation_user"),)
 
     memo_id: Mapped[uuid.UUID] = _uuid_pk()
     reservation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reservations.reservation_id"), nullable=False)
