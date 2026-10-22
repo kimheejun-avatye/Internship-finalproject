@@ -2,7 +2,7 @@
 
 from typing import Any
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 
@@ -322,7 +322,59 @@ class ReservationService:
         TODO: 현재 시각 이전 슬롯은 available=False로 표시한다. 겹침 판단은 [start, end) 반열린 구간.
         TODO: create_reservation의 중복 검사 조건과 일치하는지 확인한다.
         """
-        raise NotImplementedError
+
+        room = self.db.get(Room, query.room_id)
+
+        if room is None:
+            raise ApiError(404, "ROOM_NOT_FOUND", "회의실을 찾을 수 없습니다.")
+
+        day_start = datetime.combine(query.date, time.min, tzinfo=ZoneInfo("Asia/Seoul"))
+        day_end = day_start + timedelta(days=1)
+        slot_length = timedelta(minutes=query.slot_minutes)     # 슬롯 1시간
+
+        # ACTIVE가 아니면 조회 없이 모든 슬롯을 불가로 표시한다.
+        room_active = room.status == RoomStatus.ACTIVE
+        reservations = []
+        blocks = []
+        if room_active:
+            reservations = self.db.scalars(
+                select(Reservation).where(
+                    Reservation.room_id == query.room_id,
+                    Reservation.start_at < day_end,
+                    Reservation.end_at > day_start,
+                )
+            ).all()
+            blocks = room_blocks.overlapping_blocks(
+                self.db, query.room_id, day_start, day_end
+            )
+
+        now = datetime.now(ZoneInfo("Asia/Seoul"))
+        slots = []
+        for i in range(24 * 60 // query.slot_minutes):
+            slot_start = day_start + slot_length * i
+            slot_end = slot_start + slot_length
+
+            # 사유는 우선순위 순으로 하나만 정한다. None이면 예약 가능.
+            if not room_active:
+                reason = "ROOM_UNAVAILABLE"
+            elif slot_start < now:
+                reason = "PAST"
+            elif any(r.start_at < slot_end and r.end_at > slot_start for r in reservations):
+                reason = "RESERVED"
+            elif any(b.start_at < slot_end and b.end_at > slot_start for b in blocks):
+                reason = "BLOCKED"
+            else:
+                reason = None
+
+            slots.append(
+                TimeSlotOut(
+                    start_at=slot_start,
+                    end_at=slot_end,
+                    available=reason is None,
+                    reason=reason,
+                )
+            )
+        return slots
 
     # 참여자·정원 검사: create_reservation의 잠금 안에서 호출한다.
     def _validate_attendees(self, room: Room, organizer_id: UUID, attendee_ids: list[UUID]) -> list[UUID]:
@@ -333,7 +385,28 @@ class ReservationService:
         결정: 팀은 제한하지 않는다. 다른 팀 사용자도 참여자로 지정할 수 있다.
         결정: 인원 > room.capacity 이면 409 CAPACITY_EXCEEDED 로 거부한다.
         """
-        raise NotImplementedError
+
+        attendee_ids = [organizer_id] + attendee_ids  # 주최자를 포함한다.
+        attendee_ids = list(set(attendee_ids))  # 중복 제거
+        
+        attendee = self.db.scalars(
+            select(User.user_id)
+            .where(User.user_id.in_(attendee_ids),
+                   User.approved_at.isnot(None),
+                   User.blocked_at.is_(None))
+        ).all()
+
+        # 사용자 검증 
+        if len(attendee) != len(attendee_ids):
+            error_ids = set(attendee_ids) - set(attendee)
+            raise ApiError(404, "USER_NOT_FOUND", "invalid_ids: " + ", ".join(str(id) for id in error_ids))
+            
+        # 정원검사
+        if room.capacity < len(attendee):
+            raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
+        
+
+        return attendee
 
     # 참여자 저장: reservation_attendees 행을 추가한다.
     def _save_attendees(self, reservation_id: UUID, attendee_ids: list[UUID]) -> None:
