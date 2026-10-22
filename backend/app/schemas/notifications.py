@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 
 class NotificationOut(BaseModel):
@@ -14,3 +14,8 @@ class NotificationOut(BaseModel):
     end_at: AwareDatetime
     message: str
     created_at: AwareDatetime
+
+
+class NotificationListOut(BaseModel):
+    items: list[NotificationOut]
+    retention_limit: int = Field(ge=1)

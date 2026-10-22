@@ -66,6 +66,21 @@ class NotificationStore:
                 503, "NOTIFICATION_STORE_UNAVAILABLE", "알림을 저장하지 못했습니다."
             ) from exc
 
+    def list_for_user(self, user_id: UUID) -> list[NotificationOut]:
+        """해당 사용자의 보관 중인 알림을 삭제 없이 최신순으로 조회한다."""
+        try:
+            rows = self.client.lrange(self.key_prefix + str(user_id), 0, -1)
+        except RedisError as exc:
+            raise ApiError(
+                503, "NOTIFICATION_STORE_UNAVAILABLE", "알림을 조회하지 못했습니다."
+            ) from exc
+        items = [NotificationOut.model_validate_json(row) for row in rows]
+        return sorted(
+            items,
+            key=lambda item: (item.created_at, item.notification_id),
+            reverse=True,
+        )
+
 
 class NotificationService:
     def __init__(self, db: Session, store: NotificationStore | None = None):

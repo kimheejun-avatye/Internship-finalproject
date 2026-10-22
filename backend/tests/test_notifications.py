@@ -2,15 +2,18 @@
 
 import json
 import os
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from conftest import signin
 from redis import Redis
 
 from app.core.exceptions import ApiError
 from app.db.session import SessionLocal
+from app.main import app
 from app.models.chat_memo import Memo
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
@@ -165,3 +168,92 @@ def test_redis_failure_is_reported_and_committed_reservation_is_preserved(notifi
                 assert db.get(Reservation, rid) is not None
         finally:
             client.close()
+
+
+@pytest.fixture
+def notification_api(client, notification_store):
+    from app.api.routes.notifications import get_notification_store
+
+    store, redis, prefix = notification_store
+    app.dependency_overrides[get_notification_store] = lambda: store
+    try:
+        yield client, store, redis, prefix
+    finally:
+        app.dependency_overrides.pop(get_notification_store, None)
+
+
+def test_notification_list_requires_login(client):
+    response = client.get("/api/notifications")
+    assert response.status_code == 401
+
+
+def test_notification_list_is_empty_for_a_new_user(notification_api, seed):
+    client, _, _, _ = notification_api
+    seed()
+    assert signin(client).status_code == 200
+    response = client.get("/api/notifications")
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "retention_limit": 2}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_notification_list_is_private_and_survives_relogin(notification_api, notification_data):
+    from app.services.notifications import NotificationService
+
+    client, store, redis, prefix = notification_api
+    rid, host, invited, _ = notification_data
+    with SessionLocal() as db:
+        saved = NotificationService(db, store).create_for_reservation(rid)
+    assert signin(client).status_code == 200
+    for _ in range(2):
+        response = client.get("/api/notifications", params={"user_id": str(invited)})
+        assert response.status_code == 200
+        assert [item["notification_id"] for item in response.json()["items"]] == [str(saved[host].notification_id)]
+    assert client.post("/api/auth/logout", json={}).status_code == 204
+    assert signin(client, email="invited@example.com").status_code == 200
+    response = client.get("/api/notifications")
+    assert [item["notification_id"] for item in response.json()["items"]] == [str(saved[invited].notification_id)]
+    assert all(redis.llen(prefix + str(uid)) == 1 for uid in (host, invited))
+
+
+def test_notification_list_sorts_by_timestamp_then_id(notification_api, seed):
+    from app.schemas.notifications import NotificationOut
+
+    client, store, _, _ = notification_api
+    uid = seed()
+    store.retention_limit = 3
+    # 서로 다른 시간대의 같은 시각과 Redis 삽입 순서를 구분한다.
+    for number, created_at in [
+        (3, "2026-10-22T00:00:00Z"),
+        (2, "2026-10-22T09:00:00+09:00"),
+        (1, "2026-10-21T23:00:00Z"),
+    ]:
+        store.save(uid, NotificationOut(
+            notification_id=UUID(int=number), reservation_id=uuid4(),
+            title="회의", room_name="A", message="참석 안내",
+            start_at="2026-10-23T01:00:00Z", end_at="2026-10-23T02:00:00Z",
+            created_at=created_at,
+        ))
+    assert signin(client).status_code == 200
+    response = client.get("/api/notifications")
+    assert response.status_code == 200
+    assert [item["notification_id"] for item in response.json()["items"]] == [str(UUID(int=n)) for n in (3, 2, 1)]
+
+
+def test_notification_list_reports_redis_failure(notification_api, seed):
+    from app.api.routes.notifications import get_notification_store
+    from app.services.notifications import NotificationStore
+
+    client, _, _, _ = notification_api
+    seed()
+    assert signin(client).status_code == 200
+    with socket.socket() as unavailable:
+        unavailable.bind(("127.0.0.1", 0))
+        redis = Redis(host="127.0.0.1", port=unavailable.getsockname()[1], socket_connect_timeout=0.1)
+        app.dependency_overrides[get_notification_store] = lambda: NotificationStore(redis)
+        try:
+            response = client.get("/api/notifications")
+            assert response.status_code == 503
+            assert response.json()["detail"]["code"] == "NOTIFICATION_STORE_UNAVAILABLE"
+        finally:
+            redis.close()

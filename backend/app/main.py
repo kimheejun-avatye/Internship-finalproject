@@ -6,6 +6,7 @@ from app.api.routes import (
     chat,
     login,
     memo,
+    notifications,
     password,
     reservation,
     rooms,
@@ -27,6 +28,7 @@ app.include_router(password.router)
 app.include_router(reservation.router)
 app.include_router(admin.router)
 app.include_router(memo.router)
+app.include_router(notifications.router)
 app.include_router(schedule_share.router)
 app.include_router(users.router)
 app.include_router(chat.router)
