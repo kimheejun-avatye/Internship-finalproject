@@ -41,3 +41,32 @@ it("selects both affiliations by user ID and filters locally without losing sele
   expect(fetch).toHaveBeenCalledOnce();
   expect(fetch).toHaveBeenCalledWith("/api/users/search?q=&limit=50", expect.objectContaining({ method: "GET" }));
 });
+
+
+it("does not allow choosing people with another meeting but keeps already chosen ones removable", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+    items: [
+      { user_id: "free-user", name: "김한가", email: "free@example.com", team: "AVATYE" },
+      { user_id: "busy-user", name: "김바쁨", email: "busy@example.com", team: "GURU" },
+    ],
+    next_cursor: null,
+  }), { status: 200 })));
+  function Form({ busy }: { busy: ReadonlySet<string> }) {
+    const [selected, setSelected] = useState<string[]>(["busy-user"]);
+    return <AttendeePicker selected={selected} onChange={setSelected} capacity={5} busyIds={busy} />;
+  }
+  const user = userEvent.setup();
+  const { rerender } = render(<Form busy={new Set()} />);
+  await user.click(screen.getByRole("button", { name: /참석자.*선택/ }));
+  expect(await screen.findByRole("checkbox", { name: /김바쁨/ })).toBeEnabled();
+
+  // 선택한 시간에 김바쁨의 다른 회의가 생기면: 이미 고른 사람은 해제할 수 있고 경고가 보인다.
+  rerender(<Form busy={new Set(["busy-user"])} />);
+  expect(screen.getByRole("checkbox", { name: /김바쁨/ })).toBeEnabled();
+  expect(screen.getByText(/일정이 겹치는 참석자가 있습니다/)).toBeInTheDocument();
+  await user.click(screen.getByRole("checkbox", { name: /김바쁨/ }));
+  // 해제하고 나면 다시 고를 수 없다.
+  expect(screen.getByRole("checkbox", { name: /김바쁨/ })).toBeDisabled();
+  expect(screen.getByRole("checkbox", { name: /김한가/ })).toBeEnabled();
+  expect(screen.getByText(/다른 회의 있음/)).toBeInTheDocument();
+});

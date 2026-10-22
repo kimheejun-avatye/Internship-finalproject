@@ -4,7 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from queue import Queue
-from threading import Event
+from threading import Event, Lock
 from time import monotonic, sleep
 from types import SimpleNamespace
 from uuid import uuid4
@@ -22,7 +22,7 @@ from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.users import Team, User
-from app.schemas.reservations import AvailabilityQuery, ReservationCreateIn, ReservationCreateOut
+from app.schemas.reservations import AvailabilityQuery, BusyUsersQuery, ReservationCreateIn, ReservationCreateOut
 from app.services import reservations as reservation_module
 from app.services.reservations import ReservationService
 
@@ -220,10 +220,11 @@ def test_overlap_and_adjacent_time_ranges(db, sample, now, start_hours, end_hour
     assert db.get(Reservation, original.reservation_id).title == "기존 예약"
 
 
-def test_same_time_in_another_room_is_allowed(db, sample, now):
+def test_same_time_in_another_room_is_allowed_for_different_people(db, sample, now):
+    other = make_users(db, 1, now)[0]
     service = ReservationService(db)
     first = service.create_reservation(sample.user.user_id, request_data(sample, now))
-    second = service.create_reservation(sample.user.user_id,
+    second = service.create_reservation(other.user_id,
                                        request_data(sample, now, room_id=sample.other_room.room_id))
     assert first.reservation_id != second.reservation_id
     assert db.scalar(select(func.count()).select_from(Reservation)) == 2
@@ -364,15 +365,163 @@ def test_availability_date_range(db, sample, now, offset_days, allowed):
     day = now.date() + timedelta(days=offset_days)
     query = AvailabilityQuery(room_id=sample.room.room_id, date=day)
     if allowed:
-        assert len(ReservationService(db).get_room_availability(query)) == 24
+        assert len(ReservationService(db).get_room_availability(query, sample.user.user_id)) == 24
         return
     with pytest.raises(ApiError) as caught:
-        ReservationService(db).get_room_availability(query)
+        ReservationService(db).get_room_availability(query, sample.user.user_id)
     assert (caught.value.status_code, caught.value.detail["code"]) == (422, "INVALID_DATE")
 
 
 def test_availability_far_future_date_is_not_a_server_error(db, sample, now):
     query = AvailabilityQuery(room_id=sample.room.room_id, date="9999-12-31")
     with pytest.raises(ApiError) as caught:
-        ReservationService(db).get_room_availability(query)
+        ReservationService(db).get_room_availability(query, sample.user.user_id)
     assert caught.value.status_code == 422
+
+
+# ---- 같은 시간대 중복 참석 방지: 주최자·참여자 모두 겹치는 다른 회의가 있으면 거부 ----
+
+def _conflict(db, user_id, data):
+    with pytest.raises(ApiError) as caught:
+        ReservationService(db).create_reservation(user_id, data)
+    assert (caught.value.status_code, caught.value.detail["code"]) == (409, "ATTENDEE_CONFLICT")
+
+
+def test_organizer_cannot_host_two_meetings_at_the_same_time(db, sample, now):
+    service = ReservationService(db)
+    service.create_reservation(sample.user.user_id, request_data(sample, now))
+    _conflict(db, sample.user.user_id, request_data(sample, now, room_id=sample.other_room.room_id))
+    assert db.scalar(select(func.count()).select_from(Reservation)) == 1
+    assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == 1
+
+
+def test_back_to_back_meetings_in_different_rooms_are_allowed(db, sample, now):
+    service = ReservationService(db)
+    service.create_reservation(sample.user.user_id, request_data(sample, now))
+    service.create_reservation(sample.user.user_id, request_data(
+        sample, now, room_id=sample.other_room.room_id,
+        start_at=now + timedelta(hours=2), end_at=now + timedelta(hours=3)))
+    assert db.scalar(select(func.count()).select_from(Reservation)) == 2
+
+
+def test_busy_invitee_is_rejected_and_nothing_is_saved(db, sample, now):
+    member, other = make_users(db, 2, now)
+    service = ReservationService(db)
+    service.create_reservation(sample.user.user_id, request_data(sample, now, attendee_ids=[member.user_id]))
+    # member는 이미 같은 시간 회의의 참석자이므로 다른 방 회의에 초대할 수 없다.
+    _conflict(db, other.user_id, request_data(sample, now, room_id=sample.other_room.room_id,
+                                              attendee_ids=[member.user_id]))
+    assert db.scalar(select(func.count()).select_from(Reservation)) == 1
+    assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == 2
+
+
+def test_organizer_who_is_an_invitee_elsewhere_is_rejected(db, sample, now):
+    member = make_users(db, 1, now)[0]
+    service = ReservationService(db)
+    service.create_reservation(sample.user.user_id, request_data(sample, now, attendee_ids=[member.user_id]))
+    _conflict(db, member.user_id, request_data(sample, now, room_id=sample.other_room.room_id))
+
+
+def test_legacy_reservation_without_attendee_rows_still_counts(db, sample, now):
+    # 참석자 저장 기능 이전에 만든 예약은 참석자 행이 없다. 예약자(user_id)로도 겹침을 본다.
+    db.add(Reservation(room_id=sample.room.room_id, user_id=sample.user.user_id, title="예전 예약",
+                       start_at=now + timedelta(hours=1), end_at=now + timedelta(hours=2), created_at=now))
+    db.commit()
+    _conflict(db, sample.user.user_id, request_data(sample, now, room_id=sample.other_room.room_id))
+
+
+def test_concurrent_requests_for_same_person_in_different_rooms_create_only_one(sample, now, monkeypatch):
+    validated, release = Event(), Event()
+    claim, claimed = Lock(), []
+    pids = Queue()
+    original = ReservationService._validate_attendees
+
+    def pause_first(self, room, organizer_id, attendee_ids):
+        result = original(self, room, organizer_id, attendee_ids)  # 두 번째 요청은 여기서 사용자 행 잠금을 기다린다.
+        with claim:
+            first = not claimed
+            claimed.append(True)
+        if first:
+            validated.set()
+            if not release.wait(8):
+                raise RuntimeError("test wait timed out")
+        return result
+
+    monkeypatch.setattr(ReservationService, "_validate_attendees", pause_first)
+    user_id = sample.user.user_id
+
+    def worker(label, room_id):
+        with SessionLocal() as session:
+            pids.put((label, session.scalar(text("SELECT pg_backend_pid()"))))
+            try:
+                ReservationController(ReservationService(session)).create_reservation(
+                    request_data(sample, now, room_id=room_id), session.get(User, user_id))
+                return "created"
+            except ApiError as error:
+                return error.detail["code"]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(worker, "first", sample.room.room_id)
+        try:
+            assert validated.wait(5), "first request did not finish validation"
+            second = pool.submit(worker, "second", sample.other_room.room_id)
+            ids = dict([pids.get(timeout=5), pids.get(timeout=5)])
+            with engine.connect() as observer:
+                deadline = monotonic() + 5
+                while monotonic() < deadline:
+                    blockers = observer.scalar(text("SELECT pg_blocking_pids(:pid)"), {"pid": ids["second"]})
+                    if ids["first"] in blockers:
+                        break
+                    sleep(0.01)
+                else:
+                    pytest.fail("second request never waited for the first request's user lock")
+        finally:
+            release.set()
+        assert first.result(timeout=8) == "created"
+        assert second.result(timeout=8) == "ATTENDEE_CONFLICT"
+    with SessionLocal() as observer:
+        assert observer.scalar(select(func.count()).select_from(Reservation)) == 1
+
+
+# ---- 가능 시간에 내 일정 반영, 시간대별 일정 있는 사람 조회 ----
+
+def _slots(db, room, user_id, now):
+    query = AvailabilityQuery(room_id=room.room_id, date=now.date())
+    return {s.start_at.astimezone(now.tzinfo).hour: s for s in ReservationService(db).get_room_availability(query, user_id)}
+
+
+def test_availability_marks_my_other_meetings_as_unavailable(db, sample, now):
+    # 내가 A회의실 13~14시를 주최 중이면, 비어 있는 B회의실 13시도 나에게는 불가(MY_MEETING)다.
+    ReservationService(db).create_reservation(sample.user.user_id, request_data(sample, now))
+    slots = _slots(db, sample.other_room, sample.user.user_id, now)
+    assert (slots[13].available, slots[13].reason) == (False, "MY_MEETING")
+    assert slots[12].available and slots[14].available  # 인접 시간은 가능
+
+
+def test_availability_marks_meetings_i_attend_but_not_for_others(db, sample, now):
+    member, outsider = make_users(db, 2, now)
+    ReservationService(db).create_reservation(sample.user.user_id, request_data(sample, now, attendee_ids=[member.user_id]))
+    assert _slots(db, sample.other_room, member.user_id, now)[13].reason == "MY_MEETING"
+    assert _slots(db, sample.other_room, outsider.user_id, now)[13].available
+
+
+def test_availability_reason_for_same_room_stays_reserved(db, sample, now):
+    ReservationService(db).create_reservation(sample.user.user_id, request_data(sample, now))
+    assert _slots(db, sample.room, sample.user.user_id, now)[13].reason == "RESERVED"
+
+
+def test_busy_users_lists_organizers_and_attendees_in_the_range(db, sample, now):
+    member = make_users(db, 1, now)[0]
+    ReservationService(db).create_reservation(sample.user.user_id, request_data(sample, now, attendee_ids=[member.user_id]))
+    inside = BusyUsersQuery(start_at=now + timedelta(hours=1), end_at=now + timedelta(hours=2))
+    assert set(ReservationService(db).get_busy_user_ids(inside).user_ids) == {sample.user.user_id, member.user_id}
+    # 정각에 끝나는/시작하는 이웃 시간은 겹치지 않는다.
+    for start, end in ((0, 1), (2, 3)):
+        adjacent = BusyUsersQuery(start_at=now + timedelta(hours=start), end_at=now + timedelta(hours=end))
+        assert ReservationService(db).get_busy_user_ids(adjacent).user_ids == []
+
+
+@pytest.mark.parametrize("hours", [0, -1, 5])
+def test_busy_users_query_rejects_invalid_period(now, hours):
+    with pytest.raises(ValidationError):
+        BusyUsersQuery(start_at=now, end_at=now + timedelta(hours=hours))

@@ -23,7 +23,7 @@ export function isAvailableRange(slots: TimeSlot[], startAt: string, endAt: stri
 }
 
 const reasonLabel: Record<string, string> = {
-  PAST: "지난 시간", RESERVED: "예약됨", BLOCKED: "이용 제한", ROOM_UNAVAILABLE: "이용 중지",
+  PAST: "지난 시간", RESERVED: "예약됨", BLOCKED: "이용 제한", ROOM_UNAVAILABLE: "이용 중지", MY_MEETING: "내 다른 회의",
 };
 
 type Props = {

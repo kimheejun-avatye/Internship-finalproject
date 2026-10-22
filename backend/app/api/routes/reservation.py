@@ -14,6 +14,8 @@ from app.models.rooms import Room
 from app.models.users import User
 from app.schemas.reservations import (
     AvailabilityQuery,
+    BusyUsersOut,
+    BusyUsersQuery,
     CalendarQuery,
     CalendarReservationResponse,
     ReservationCreateIn,
@@ -49,7 +51,11 @@ class ReservationController:
         self, query: AvailabilityQuery, current_user: User
     ) -> list[TimeSlotOut]:
         """GET /rooms/{room_id}/availability. 계산은 서비스에 위임한다."""
-        return self.service.get_room_availability(query)
+        return self.service.get_room_availability(query, current_user.user_id)
+
+    # 시간대별 일정 있는 사람 조회: 참석자 선택 화면에서 선택 불가 표시에 쓴다.
+    def get_busy_users(self, query: BusyUsersQuery, current_user: User) -> BusyUsersOut:
+        return self.service.get_busy_user_ids(query)
 
     # 캘린더 예약 조회: 조회 기간·필터와 인증 사용자 ID를 서비스에 전달한다.
     def get_calendar_reservations(
@@ -166,6 +172,18 @@ def get_calendar_rooms(
 ):
     response.headers["Cache-Control"] = "no-store"
     return controller.get_calendar_rooms(identity[0])
+
+
+# 구간에 다른 회의가 있는 사용자 id 목록. 참석자 선택 화면이 선택 불가 표시에 쓴다.
+@router.get("/reservations/busy-users", response_model=BusyUsersOut)
+def get_busy_users(
+    query: Annotated[BusyUsersQuery, Query()],
+    response: Response,
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return controller.get_busy_users(query, identity[0])
 
 
 # 가능한 시간 조회 API :  회의실 ID, 날짜, 슬롯 길이를 쿼리로 받아 컨트롤러에 전달한다.

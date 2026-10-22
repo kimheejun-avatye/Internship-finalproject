@@ -8,10 +8,13 @@ import type { Room, ReservationItem, ReservationList, CreatedReservation } from 
 import { ApiError } from "../../../shared/api/client";
 
 vi.mock("../reservations.api", () => ({
-  listRooms: vi.fn(), listReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(),
+  listRooms: vi.fn(), listReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(), getBusyUsers: vi.fn(),
 }));
 vi.mock("../../../shared/hooks/useSelectableUsers", () => ({
-  useSelectableUsers: () => ({ status: "ready", users: [], error: "", retry: vi.fn() }),
+  useSelectableUsers: () => ({
+    status: "ready", error: "", retry: vi.fn(),
+    users: [{ user_id: "busy-user", name: "김바쁨", email: "busy@example.com", team: "AVATYE" }],
+  }),
 }));
 const firstId = "0a01e4aa-c032-47f8-8751-1a29b069fa0a";
 const secondId = "1a01e4aa-c032-47f8-8751-1a29b069fa0a";
@@ -38,6 +41,7 @@ beforeEach(() => {
     return { start_at: start.toISOString(), end_at: new Date(start.getTime() + 3_600_000).toISOString(), available: start.getTime() > Date.now(), reason: start.getTime() > Date.now() ? null : "PAST" };
   }));
   vi.mocked(api.listReservations).mockResolvedValue(empty);
+  vi.mocked(api.getBusyUsers).mockResolvedValue({ user_ids: [] });
   vi.mocked(api.createReservation).mockResolvedValue({
     ...item, created_at: "2026-10-19T20:30:00+09:00",
   });
@@ -186,4 +190,40 @@ it.each([
   fireEvent.submit(screen.getByRole("button", { name: "예약하기" }).closest("form")!);
   expect(await screen.findByRole("alert")).toHaveTextContent(message);
   expect(api.createReservation).not.toHaveBeenCalled();
+});
+
+
+it("blocks the reservation button when a chosen attendee has another meeting at the newly chosen time", async () => {
+  // 22시 시작 구간에서만 김바쁨에게 다른 회의가 있다.
+  vi.mocked(api.getBusyUsers).mockImplementation(async start => ({ user_ids: start.includes("T22:00") ? ["busy-user"] : [] }));
+  renderPage();
+  await fillForm();
+  await userEvent.click(screen.getByRole("button", { name: /참석자 선택/ }));
+  await userEvent.click(await screen.findByRole("checkbox", { name: /김바쁨/ }));
+  await userEvent.click(screen.getByRole("button", { name: "닫기" }));
+  expect(screen.getByRole("button", { name: "예약하기" })).toBeEnabled();
+
+  fireEvent.change(screen.getByLabelText("시작 (한국 시간)"), { target: { value: "22:00" } });
+  fireEvent.change(screen.getByLabelText("종료 (한국 시간)"), { target: { value: "23:00" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "예약하기" })).toBeDisabled());
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument(); // 별도 안내문 없이 버튼만 막는다.
+  expect(api.getBusyUsers).toHaveBeenLastCalledWith("2026-10-19T22:00:00+09:00", "2026-10-19T23:00:00+09:00");
+
+  // 선택을 해제하면 다시 예약할 수 있다.
+  await userEvent.click(screen.getByRole("button", { name: /참석자.*선택/ }));
+  await userEvent.click(screen.getByRole("checkbox", { name: /김바쁨/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "예약하기" })).toBeEnabled());
+});
+
+it("shows hours blocked by my other meetings as unavailable", async () => {
+  vi.mocked(api.getAvailability).mockImplementation(async (_roomId, date) => Array.from({ length: 24 }, (_, hour) => {
+    const start = new Date(`${date}T${String(hour).padStart(2, "0")}:00:00+09:00`);
+    const mine = hour === 21;
+    return { start_at: start.toISOString(), end_at: new Date(start.getTime() + 3_600_000).toISOString(),
+      available: start.getTime() > Date.now() && !mine, reason: mine ? "MY_MEETING" : null };
+  }));
+  renderPage();
+  await screen.findByRole("heading", { name: "DB 회의실 A · 오늘 남은 일정" });
+  const option = await screen.findByRole("option", { name: "21:00 · 내 다른 회의" });
+  expect(option).toBeDisabled();
 });
