@@ -13,6 +13,7 @@ function calendarResponse(path: string): Response {
   if (path === "/api/calendar/rooms") return json([room]);
   if (path.startsWith("/api/calendar/reservations?")) return json([]);
   if (path.startsWith("/api/users/search?")) return json({ items: [], next_cursor: null });
+  if (path.startsWith("/api/chat/rooms?")) return json({ items: [], next_cursor: null });
   throw new Error(`Unexpected API request in login test: ${path}`);
 }
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken(""); });
@@ -92,6 +93,7 @@ it("keeps the selected room and page while StrictMode restores the session", asy
       { room_id: "room-b", name: "회의실 B", status: "ACTIVE", capacity: 10 },
     ]), { status: 200 }));
     if (path.startsWith("/api/users/search?")) return Promise.resolve(json({ items: [], next_cursor: null }));
+    if (path.startsWith("/api/chat/rooms?")) return Promise.resolve(json({ items: [], next_cursor: null }));
     if (path.startsWith("/api/rooms/room-b/availability?")) return Promise.resolve(json([]));
     if (path === "/api/rooms/room-b/reservations?page=2") {
       return Promise.resolve(json({ items: [], page: 2, page_size: 5, total: 6 }));

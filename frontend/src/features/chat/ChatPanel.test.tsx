@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import ChatPanel from "./ChatPanel";
 import { createMockChat } from "./mocks/chat.mock";
+import { createLiveChat } from "./chat.live";
 import { getChatData } from "./chat.data";
 import { formatChatTime } from "./components/MessageBubble";
 
@@ -49,7 +50,7 @@ it("opens a direct room immediately, reuses it, keeps tabs and returns to friend
   const user = userEvent.setup();
   render(<ChatPanel data={data} />);
   await user.click(screen.getByRole("button", { name: "김희준 (AVATYE) 대화 열기" }));
-  expect(screen.getByRole("heading", { name: "김희준" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "김희준" })).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "AVATYE 메신저" })).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "채팅 목록" })).toHaveAttribute("aria-selected", "true");
   expect(screen.getByText("접속 중")).toBeInTheDocument();
@@ -80,12 +81,12 @@ it("creates a mixed-organization group and supports chips and searches", async (
   await user.click(screen.getByRole("checkbox", { name: /김희준.*선택$/ }));
   await user.type(title, "새 디자인 리뷰");
   await user.click(screen.getByRole("button", { name: "2명과 채팅 시작" }));
-  expect(screen.getByRole("heading", { name: "새 디자인 리뷰" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "새 디자인 리뷰" })).toBeInTheDocument();
   expect(screen.getByText("3명")).toBeInTheDocument();
   expect(screen.getByText(/아직 메시지가 없습니다/)).toBeInTheDocument();
   expect(data.getSnapshot().rooms).toHaveLength(6);
   expect(data.getSnapshot().rooms.at(-1)?.members.map(member => member.user_id).sort()).toEqual(["mock-avatye-01", "mock-guru-01"]);
-  expect(() => data.createRoom(["missing-user"])).toThrow("대화할 수 없는 사용자");
+  await expect(data.createRoom(["missing-user"])).rejects.toThrow("대화할 수 없는 사용자");
 });
 
 it("creates a direct room for one person and automatic group titles in the data layer", async () => {
@@ -95,13 +96,13 @@ it("creates a direct room for one person and automatic group titles in the data 
   await user.click(screen.getByRole("button", { name: "새 채팅" }));
   await user.click(screen.getByRole("checkbox", { name: /김의성.*선택$/ }));
   await user.click(screen.getByRole("button", { name: "1명과 채팅 시작" }));
-  expect(screen.getByRole("heading", { name: "김의성" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "김의성" })).toBeInTheDocument();
   let id = "";
-  act(() => { id = data.createRoom(["mock-guru-02", "mock-guru-03"], " "); });
+  await act(async () => { id = await data.createRoom(["mock-guru-02", "mock-guru-03"], " "); });
   const room = data.getSnapshot().rooms.find(r => r.chat_room_id === id)!;
   expect(room.display_title).toBe("김의성, 이준서");
   expect(room.member_count).toBe(3);
-  expect(() => data.createRoom(["mock-guru-02", "mock-guru-03"], "가".repeat(51))).toThrow("50자");
+  await expect(data.createRoom(["mock-guru-02", "mock-guru-03"], "가".repeat(51))).rejects.toThrow("50자");
 });
 
 it("searches message history, marks rooms read and updates order after sending", async () => {
@@ -121,7 +122,7 @@ it("searches message history, marks rooms read and updates order after sending",
   await user.click(screen.getByRole("button", { name: "전체" }));
   await user.click(screen.getByRole("button", { name: "김희준 대화 열기" }));
   await user.type(screen.getByRole("textbox", { name: "메시지 입력" }), "  새 메시지  {Enter}");
-  expect(screen.getByText("새 메시지")).toBeInTheDocument();
+  expect(await screen.findByText("새 메시지")).toBeInTheDocument();
   await user.click(screen.getByRole("tab", { name: "채팅 목록" }));
   expect(within(screen.getByRole("list", { name: "채팅방 목록" })).getAllByRole("button")[0]).toHaveAccessibleName("김희준 대화 열기");
   expect(screen.getByText("새 메시지")).toBeInTheDocument();
@@ -132,7 +133,7 @@ it("preserves room drafts across conversations and unmounts without sending duri
   const user = userEvent.setup();
   const view = render(<ChatPanel data={data} />);
   await user.click(screen.getByRole("button", { name: "김희준 (AVATYE) 대화 열기" }));
-  const input = screen.getByRole("textbox", { name: "메시지 입력" });
+  const input = await screen.findByRole("textbox", { name: "메시지 입력" });
   const roomId = "mock-avatye-room-1";
   await user.type(input, "첫 줄{Shift>}{Enter}{/Shift}두 번째");
   expect(input).toHaveValue("첫 줄\n두 번째");
@@ -144,14 +145,14 @@ it("preserves room drafts across conversations and unmounts without sending duri
   expect(data.getSnapshot().messages[roomId]).toHaveLength(12);
   await user.click(screen.getByRole("tab", { name: "친구" }));
   await user.click(screen.getByRole("button", { name: "김민서 (AVATYE) 대화 열기" }));
-  expect(screen.getByRole("textbox", { name: "메시지 입력" })).toHaveValue("");
+  expect(await screen.findByRole("textbox", { name: "메시지 입력" })).toHaveValue("");
   await user.type(screen.getByRole("textbox", { name: "메시지 입력" }), "별도 초안");
   view.unmount();
   render(<ChatPanel data={data} />);
   expect(screen.getByRole("textbox", { name: "메시지 입력" })).toHaveValue("별도 초안");
   await user.click(screen.getByRole("tab", { name: "친구" }));
   await user.click(screen.getByRole("button", { name: "김희준 (AVATYE) 대화 열기" }));
-  expect(screen.getByRole("textbox", { name: "메시지 입력" })).toHaveValue("첫 줄\n두 번째");
+  expect(await screen.findByRole("textbox", { name: "메시지 입력" })).toHaveValue("첫 줄\n두 번째");
   await user.click(screen.getByRole("textbox", { name: "메시지 입력" }));
   await user.keyboard("{Enter}");
   expect(data.getSnapshot().messages[roomId].at(-1)?.message).toBe("첫 줄\n두 번째");
@@ -160,7 +161,7 @@ it("preserves room drafts across conversations and unmounts without sending duri
 it("enforces trimmed 1–2000 characters and never calls the server", async () => {
   const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
   const data = createMockChat("AVATYE");
-  const roomId = data.createRoom(["mock-avatye-02"]);
+  const roomId = await data.createRoom(["mock-avatye-02"]);
   data.openRoom(roomId, "friends");
   render(<ChatPanel data={data} />);
   const input = screen.getByRole("textbox", { name: "메시지 입력" });
@@ -194,9 +195,9 @@ it("prepends older history while preserving the scroll offset and shows dates an
   expect(formatChatTime("2026-10-16T05:09:00Z")).toBe("14:09");
 });
 
-it("retains its module data through navigation but new instances start clean", () => {
+it("retains its module data through navigation but new instances start clean", async () => {
   const data = getChatData("GURU");
-  const room = data.createRoom(["mock-guru-02"]);
+  const room = await data.createRoom(["mock-guru-02"]);
   act(() => data.setDraft(room, "페이지 이동 후에도 유지"));
   expect(getChatData("GURU").getSnapshot().drafts[room]).toBe("페이지 이동 후에도 유지");
   expect(createMockChat("GURU").getSnapshot().drafts).toEqual({});
@@ -209,13 +210,32 @@ it("opens and reuses cross-organization direct rooms and sends messages", async 
   render(<ChatPanel data={data} />);
   expect(screen.queryByText(/같은 소속/)).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "김희오 (GURU) 대화 열기" }));
-  expect(screen.getByRole("heading", { name: "김희오" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "김희오" })).toBeInTheDocument();
   await user.type(screen.getByRole("textbox", { name: "메시지 입력" }), "소속과 관계없이 대화합니다.{Enter}");
   const room = data.getSnapshot().rooms.at(-1)!;
   expect(data.getSnapshot().messages[room.chat_room_id].at(-1)?.message).toBe("소속과 관계없이 대화합니다.");
   await user.click(screen.getByRole("button", { name: "이전 목록으로 돌아가기" }));
   await user.click(screen.getByRole("button", { name: "김희오 (GURU) 대화 열기" }));
   expect(data.getSnapshot().rooms).toHaveLength(6);
-  expect(screen.getByText("소속과 관계없이 대화합니다.")).toBeInTheDocument();
+  expect(await screen.findByText("소속과 관계없이 대화합니다.")).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it("shows the room count instead of unread state when connected to the server", async () => {
+  const summary = (id: string, title: string) => ({
+    chat_room_id: id, type: "DIRECT", title: null, display_title: title, member_count: 2,
+    last_message: null, last_activity_at: "2026-10-22T01:00:00Z", created_at: "2026-10-22T01:00:00Z",
+  });
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => new Response(JSON.stringify(path.startsWith("/api/chat/rooms?")
+    ? { items: [summary("room-1", "김민수"), summary("room-2", "이영희")], next_cursor: null }
+    : { items: [], next_cursor: null }), { status: 200 })));
+  const data = createLiveChat({ user_id: "me", name: "나", email: "me@example.com", team: "AVATYE" });
+  const user = userEvent.setup();
+  render(<ChatPanel data={data} />);
+  await user.click(screen.getByRole("tab", { name: "채팅 목록" }));
+  expect(await screen.findAllByRole("button", { name: /대화 열기$/ })).toHaveLength(2);
+  // 읽음 정보가 없으므로 탭 숫자는 방 수, 안 읽음 필터는 보이지 않는다
+  expect(within(screen.getByRole("tab", { name: "채팅 목록" })).getByText("2")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /안 읽음/ })).not.toBeInTheDocument();
+  data.disconnect?.();
 });
