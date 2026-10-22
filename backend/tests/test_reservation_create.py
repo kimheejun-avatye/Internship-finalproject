@@ -22,14 +22,14 @@ from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.users import Team, User
-from app.schemas.reservations import ReservationCreateIn, ReservationCreateOut
+from app.schemas.reservations import AvailabilityQuery, ReservationCreateIn, ReservationCreateOut
 from app.services import reservations as reservation_module
 from app.services.reservations import ReservationService
 
 
 @pytest.fixture
 def now(monkeypatch):
-    fixed = datetime(2026, 10, 18, 12, tzinfo=ZoneInfo("Asia/Seoul"))
+    fixed = datetime(2026, 10, 19, 12, tzinfo=ZoneInfo("Asia/Seoul"))  # 월요일
 
     class FrozenDatetime(datetime):
         @classmethod
@@ -156,9 +156,9 @@ def test_invalid_attendee_is_rejected_and_reported(db, sample, now, problem):
 
 @pytest.mark.parametrize("changes", [
     {"title": ""}, {"title": " \t\n "}, {"room_id": "not-a-uuid"},
-    {"start_at": "2026-10-18T13:00:00"}, {"end_at": "2026-10-18T14:00:00"},
-    {"end_at": "2026-10-18T13:00:00+09:00"},
-    {"end_at": "2026-10-18T12:30:00+09:00"}, {"user_id": str(uuid4())},
+    {"start_at": "2026-10-19T13:00:00"}, {"end_at": "2026-10-19T14:00:00"},
+    {"end_at": "2026-10-19T13:00:00+09:00"},
+    {"end_at": "2026-10-19T12:30:00+09:00"}, {"user_id": str(uuid4())},
 ])
 def test_create_input_rejects_invalid_values(sample, now, changes):
     with pytest.raises(ValidationError):
@@ -170,10 +170,10 @@ def test_create_input_requires_title(sample, now):
         ReservationCreateIn(room_id=sample.room.room_id, start_at=now, end_at=now + timedelta(hours=1))
 
 
-@pytest.mark.parametrize("start_minutes,end_minutes", [(-1, 60), (-60, -30)])
-def test_past_start_is_rejected(db, sample, now, start_minutes, end_minutes):
-    data = request_data(sample, now, start_at=now + timedelta(minutes=start_minutes),
-                        end_at=now + timedelta(minutes=end_minutes))
+@pytest.mark.parametrize("start_hours,end_hours", [(-1, 1), (-2, -1)])
+def test_past_start_is_rejected(db, sample, now, start_hours, end_hours):
+    data = request_data(sample, now, start_at=now + timedelta(hours=start_hours),
+                        end_at=now + timedelta(hours=end_hours))
     with pytest.raises(ApiError) as caught:
         ReservationService(db).create_reservation(sample.user.user_id, data)
     assert caught.value.status_code == 400
@@ -198,8 +198,8 @@ def test_creation_business_errors(db, sample, now, problem, status, code):
 
 
 @pytest.mark.parametrize("start_hours,end_hours,conflict", [
-    (1, 2, False), (3, 4, False), (1, 4, True), (2.25, 2.75, True),
-    (1.5, 2.5, True), (2.5, 3.5, True), (2, 3, True), (4, 5, False),
+    (1, 2, False), (3, 4, False), (1, 4, True), (1, 3, True),
+    (2, 4, True), (2, 3, True), (4, 5, False),
 ])
 def test_overlap_and_adjacent_time_ranges(db, sample, now, start_hours, end_hours, conflict):
     original = Reservation(room_id=sample.room.room_id, user_id=sample.user.user_id,
@@ -316,3 +316,63 @@ def test_overlapping_concurrent_requests_create_only_one_row(sample, now):
         assert second.result(timeout=5)[0] == "RESERVATION_CONFLICT"
     with SessionLocal() as observer:
         assert observer.scalar(select(func.count()).select_from(Reservation)) == 1
+
+
+# ---- 예약 규칙: 1시간 단위, 최대 4시간, 평일 시작, 제목 32자 ----
+
+@pytest.mark.parametrize("changes", [
+    {"start_at": "2026-10-19T13:30:00+09:00", "end_at": "2026-10-19T14:00:00+09:00"},  # 시작이 정각이 아님
+    {"start_at": "2026-10-19T13:00:00+09:00", "end_at": "2026-10-19T14:15:00+09:00"},  # 종료가 정각이 아님
+    {"start_at": "2026-10-19T13:00:00+09:00", "end_at": "2026-10-19T18:00:00+09:00"},  # 5시간
+    {"start_at": "2026-10-24T10:00:00+09:00", "end_at": "2026-10-24T11:00:00+09:00"},  # 토요일 시작
+    {"start_at": "2026-10-25T10:00:00+09:00", "end_at": "2026-10-25T11:00:00+09:00"},  # 일요일 시작
+    {"title": "가" * 33}, {"title": " " + "가" * 33 + " "},
+])
+def test_reservation_rules_reject_invalid_input(sample, now, changes):
+    with pytest.raises(ValidationError):
+        request_data(sample, now, **changes)
+
+
+@pytest.mark.parametrize("changes", [
+    {"start_at": "2026-10-19T13:00:00+09:00", "end_at": "2026-10-19T17:00:00+09:00"},  # 정확히 4시간
+    {"start_at": "2026-10-23T22:00:00+09:00", "end_at": "2026-10-24T01:00:00+09:00"},  # 금요일 시작, 토요일 종료
+    {"start_at": "2026-10-19T04:00:00Z", "end_at": "2026-10-19T05:00:00Z"},  # UTC 표기여도 한국 시간 13시면 정각
+    {"title": "가" * 32}, {"title": " " + "가" * 32 + " "},
+])
+def test_reservation_rules_accept_boundary_input(sample, now, changes):
+    request_data(sample, now, **changes)
+
+
+def test_utc_start_is_judged_by_korean_time(sample, now):
+    # 2026-10-19T15:00Z 는 한국 시간 화요일 00:00 이다. 한국 시간 기준 정각·평일이므로 통과한다.
+    request_data(sample, now, start_at="2026-10-19T15:00:00Z", end_at="2026-10-19T16:00:00Z")
+    # 2026-10-23T15:00Z 는 한국 시간 토요일 00:00 이다. UTC로는 금요일이지만 거부된다.
+    with pytest.raises(ValidationError):
+        request_data(sample, now, start_at="2026-10-23T15:00:00Z", end_at="2026-10-23T16:00:00Z")
+
+
+def test_capacity_is_checked_before_querying_users(db, sample, now):
+    # 정원(6)보다 많은 존재하지 않는 참여자: 사용자 조회까지 가면 404, 먼저 정원을 보면 409.
+    data = request_data(sample, now, attendee_ids=[uuid4() for _ in range(6)])
+    with pytest.raises(ApiError) as caught:
+        ReservationService(db).create_reservation(sample.user.user_id, data)
+    assert (caught.value.status_code, caught.value.detail["code"]) == (409, "CAPACITY_EXCEEDED")
+
+
+@pytest.mark.parametrize("offset_days,allowed", [(0, True), (365, True), (-1, False), (366, False)])
+def test_availability_date_range(db, sample, now, offset_days, allowed):
+    day = now.date() + timedelta(days=offset_days)
+    query = AvailabilityQuery(room_id=sample.room.room_id, date=day)
+    if allowed:
+        assert len(ReservationService(db).get_room_availability(query)) == 24
+        return
+    with pytest.raises(ApiError) as caught:
+        ReservationService(db).get_room_availability(query)
+    assert (caught.value.status_code, caught.value.detail["code"]) == (422, "INVALID_DATE")
+
+
+def test_availability_far_future_date_is_not_a_server_error(db, sample, now):
+    query = AvailabilityQuery(room_id=sample.room.room_id, date="9999-12-31")
+    with pytest.raises(ApiError) as caught:
+        ReservationService(db).get_room_availability(query)
+    assert caught.value.status_code == 422
