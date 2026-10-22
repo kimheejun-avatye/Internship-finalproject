@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select, union
 
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from app.models.users import User
 from app.services import room_blocks
 from app.schemas.reservations import (
     AvailabilityQuery,
+    BusyUsersOut,
+    BusyUsersQuery,
     CalendarQuery,
     CalendarReservationResponse,
     ReservationCreateIn,
@@ -89,6 +91,7 @@ class ReservationService:
                 raise ApiError(409, "RESERVATION_CONFLICT", "이미 예약된 시간과 겹칩니다.")
 
             attendee_ids = self._validate_attendees(room, user_id, data.attendee_ids)
+            self._check_attendee_conflicts(attendee_ids, data.start_at, data.end_at)
 
             reservation = Reservation(
                 room_id=data.room_id,
@@ -316,7 +319,7 @@ class ReservationService:
         )
 
     # 가능 시간 조회: 하루 24시간을 1시간 슬롯 24개로 나눠 예약·차단·과거 시각과 겹치는지 표시한다.
-    def get_room_availability(self, query: AvailabilityQuery) -> list[TimeSlotOut]:
+    def get_room_availability(self, query: AvailabilityQuery, user_id: UUID) -> list[TimeSlotOut]:
         """한국 시간 기준 query.date 하루를 query.slot_minutes 간격으로 나눈 슬롯 목록.
 
         입력: 회의실 ID, 날짜, 슬롯 길이. 반환: 시간순 list[TimeSlotOut].
@@ -346,6 +349,7 @@ class ReservationService:
         room_active = room.status == RoomStatus.ACTIVE
         reservations = []
         blocks = []
+        mine = []
         if room_active:
             reservations = self.db.scalars(
                 select(Reservation).where(
@@ -357,6 +361,14 @@ class ReservationService:
             blocks = room_blocks.overlapping_blocks(
                 self.db, query.room_id, day_start, day_end
             )
+            # 내가 주최하거나 참석하는 다른 회의: 회의실이 비어 있어도 이 시간에는 예약할 수 없다.
+            mine = self.db.execute(
+                select(Reservation.start_at, Reservation.end_at).where(
+                    Reservation.start_at < day_end,
+                    Reservation.end_at > day_start,
+                    self._involves([user_id]),
+                )
+            ).all()
 
         now = datetime.now(ZoneInfo("Asia/Seoul"))
         slots = []
@@ -373,6 +385,8 @@ class ReservationService:
                 reason = "RESERVED"
             elif any(b.start_at < slot_end and b.end_at > slot_start for b in blocks):
                 reason = "BLOCKED"
+            elif any(m.start_at < slot_end and m.end_at > slot_start for m in mine):
+                reason = "MY_MEETING"
             else:
                 reason = None
 
@@ -402,6 +416,8 @@ class ReservationService:
         if room.capacity < len(attendee_ids):
             raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
 
+        # 참석자 행을 id 순서로 잠근다. 같은 사람을 다른 방에서 동시에 예약하는 요청과 관리자 차단을
+        # 이 잠금으로 직렬화하고, 항상 같은 순서로 잠가 서로 기다리는 교착을 피한다.
         valid_ids = set(self.db.scalars(
             select(User.user_id)
             .where(
@@ -409,11 +425,54 @@ class ReservationService:
                 User.approved_at.is_not(None),
                 User.blocked_at.is_(None),
             )
+            .order_by(User.user_id)
+            .with_for_update()
         ))
         if len(valid_ids) != len(attendee_ids):
             raise ApiError(404, "USER_NOT_FOUND", "초대할 수 없는 사용자가 포함되어 있습니다.")
 
         return attendee_ids
+
+    # 주어진 사용자 중 한 명이라도 주최하거나 참석하는 예약의 조건. 참석자 행이 없는 예전 예약도 예약자로 잡는다.
+    @staticmethod
+    def _involves(user_ids: list[UUID]):
+        return or_(
+            Reservation.user_id.in_(user_ids),
+            exists().where(
+                ReservationAttendee.reservation_id == Reservation.reservation_id,
+                ReservationAttendee.user_id.in_(user_ids),
+            ),
+        )
+
+    # 구간에 주최하거나 참석하는 다른 회의가 있는 모든 사용자의 id. 참석자 선택 화면의 선택 불가 표시용이다.
+    def get_busy_user_ids(self, query: BusyUsersQuery) -> BusyUsersOut:
+        overlap = (Reservation.start_at < query.end_at, Reservation.end_at > query.start_at)
+        organizers = select(Reservation.user_id).where(*overlap)
+        attendees = (
+            select(ReservationAttendee.user_id)
+            .join(Reservation, Reservation.reservation_id == ReservationAttendee.reservation_id)
+            .where(*overlap)
+        )
+        return BusyUsersOut(user_ids=sorted(self.db.scalars(union(organizers, attendees))))
+
+    # 참석자 시간 중복 검사: create_reservation의 잠금 안에서 _validate_attendees 뒤에 호출한다.
+    def _check_attendee_conflicts(self, attendee_ids: list[UUID], start_at: datetime, end_at: datetime) -> None:
+        """주최자를 포함한 참석자 중 같은 시간대의 다른 예약에 참석하거나 주최하는 사람이 있으면 409.
+
+        겹침 판단은 예약 저장과 같은 [start, end) 조건이다. 참석자 행이 없는 예전 예약도 놓치지 않도록
+        예약자(user_id)도 함께 본다. 누가 겹치는지는 응답에 담지 않는다.
+        """
+        conflict = self.db.scalar(
+            select(Reservation.reservation_id)
+            .where(
+                Reservation.start_at < end_at,
+                Reservation.end_at > start_at,
+                self._involves(attendee_ids),
+            )
+            .limit(1)
+        )
+        if conflict is not None:
+            raise ApiError(409, "ATTENDEE_CONFLICT", "같은 시간에 다른 회의가 있는 참석자가 있습니다.")
 
     # 참여자 저장: reservation_attendees 행을 추가한다.
     def _save_attendees(self, reservation_id: UUID, attendee_ids: list[UUID]) -> None:

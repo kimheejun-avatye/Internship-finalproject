@@ -133,6 +133,26 @@ class ReservationCreateOut(BaseModel):
     created_at: AwareDatetime
 
 
+# 시간대별 일정 있는 사람 조회 요청: 참석자 선택 화면에서 선택 불가 표시를 위해 쓴다.
+class BusyUsersQuery(BaseModel):
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def validate_period(self) -> "BusyUsersQuery":
+        if self.end_at <= self.start_at:
+            raise ValueError("종료 시각은 시작 시각보다 늦어야 합니다.")
+        if self.end_at - self.start_at > timedelta(hours=MAX_RESERVATION_HOURS):
+            raise ValueError(f"조회 구간은 최대 {MAX_RESERVATION_HOURS}시간입니다.")
+        return self
+
+
+class BusyUsersOut(BaseModel):
+    """주최하거나 참석해서 요청 구간에 다른 회의가 있는 사용자 id 목록."""
+
+    user_ids: list[UUID]
+
+
 # 가능 시간 조회 요청: 날짜 하루와 회의실을 지정한다.
 class AvailabilityQuery(BaseModel):
     """한국 시간 기준 date 하루 동안 room_id 회의실의 예약 가능 구간을 묻는 요청."""

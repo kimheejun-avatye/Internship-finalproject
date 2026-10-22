@@ -208,3 +208,22 @@ def test_optional_activity_failure_does_not_hide_committed_creation(client, acco
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Reservation)) == 1
         assert db.get(Reservation, UUID(response.json()["reservation_id"])) is not None
+
+
+def test_busy_users_endpoint(client, account):
+    user_id, room_id = account
+    assert client.post("/api/reservations", json=payload(room_id)).status_code == 201
+    body = payload(room_id)
+    params = {"start_at": body["start_at"], "end_at": body["end_at"]}
+    response = client.get("/api/reservations/busy-users", params=params)
+    assert response.status_code == 200
+    assert response.json() == {"user_ids": [str(user_id)]}
+    assert response.headers["cache-control"] == "no-store"
+    # 구간이 4시간을 넘거나 시작이 종료보다 늦으면 422
+    assert client.get("/api/reservations/busy-users", params={**params, "end_at": payload(room_id, hour=6)["end_at"]}).status_code == 422
+    assert client.get("/api/reservations/busy-users", params={"start_at": params["end_at"], "end_at": params["start_at"]}).status_code == 422
+
+
+def test_busy_users_endpoint_requires_login(client):
+    response = client.get("/api/reservations/busy-users", params={"start_at": "2026-10-19T10:00:00+09:00", "end_at": "2026-10-19T11:00:00+09:00"})
+    assert response.status_code == 401
