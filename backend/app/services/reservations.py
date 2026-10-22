@@ -84,7 +84,8 @@ class ReservationService:
             if conflict is not None:
                 raise ApiError(409, "RESERVATION_CONFLICT", "이미 예약된 시간과 겹칩니다.")
 
-            # TODO: 정원 검사 — self._validate_attendees(room, user_id, data.attendee_ids) 호출.
+            # 참여자·정원 검사. 주최자를 포함한 정리된 목록을 받는다.
+            validated_attendee_ids = self._validate_attendees(room, user_id, data.attendee_ids)
 
             reservation = Reservation(
                 room_id=data.room_id,
@@ -96,9 +97,11 @@ class ReservationService:
             )
             self.db.add(reservation)
             self.db.flush()
-            # TODO: 참여자 저장 — self._save_attendees(reservation.reservation_id, ...) 호출.
+            
             # 예약과 참여자는 같은 트랜잭션에서 commit/rollback 되어야 한다.
             # 응답 구성까지 성공한 뒤 저장을 확정한다.
+            self._save_attendees(reservation.reservation_id, validated_attendee_ids)
+
             result = ReservationCreateOut.model_validate(reservation)
             self.db.commit()
             return result
@@ -387,8 +390,7 @@ class ReservationService:
         결정: 인원 > room.capacity 이면 409 CAPACITY_EXCEEDED 로 거부한다.
         """
 
-        attendee_ids = [organizer_id] + attendee_ids  # 주최자를 포함한다.
-        attendee_ids = list(set(attendee_ids))  # 중복 제거
+        attendee_ids = list(set(attendee_ids) - {organizer_id})  # 중복 제거, 주최자는 아래에서 따로 더한다.
         
         attendee = self.db.scalars(
             select(User.user_id)
@@ -401,19 +403,29 @@ class ReservationService:
         if len(attendee) != len(attendee_ids):
             error_ids = set(attendee_ids) - set(attendee)
             raise ApiError(404, "USER_NOT_FOUND", "invalid_ids: " + ", ".join(str(id) for id in error_ids))
-            
+
+        attendee_ids = [organizer_id] + attendee_ids  # 주최자를 포함한다.
+
+        
         # 정원검사
-        if room.capacity < len(attendee):
+        if room.capacity < len(attendee_ids):
             raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
         
 
-        return attendee
+        return attendee_ids
 
     # 참여자 저장: reservation_attendees 행을 추가한다.
     def _save_attendees(self, reservation_id: UUID, attendee_ids: list[UUID]) -> None:
         """ReservationAttendee (reservation_id, user_id) 행을 추가한다. commit은 호출자가 한다.
 
-        TODO: 복합 PK 중복이 없도록 _validate_attendees에서 정리된 목록만 받는다.
-        TODO: 예약 응답(ReservationCreateOut)에 참여자 정보를 포함할지 결정한다.
+        복합 PK 중복이 없도록 _validate_attendees에서 정리된 목록만 받는다.
+        예약 응답(ReservationCreateOut)에는 참여자 정보를 포함하지 않는다.
         """
-        raise NotImplementedError
+        attendees = []
+        for user_id in attendee_ids:
+            attendee = ReservationAttendee(
+                reservation_id=reservation_id,
+                user_id=user_id,
+            )
+            attendees.append(attendee)
+        self.db.add_all(attendees)
