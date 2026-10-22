@@ -4,7 +4,7 @@ from datetime import date as date_type
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import authenticated
@@ -26,6 +26,7 @@ from app.schemas.reservations import (
     TimeSlotOut,
 )
 from app.schemas.rooms import RoomOut
+from app.services.notifications import notify_reservation_created
 from app.services.reservations import ReservationService
 from app.services.rooms import list_rooms
 
@@ -144,11 +145,14 @@ def get_room_reservations(
 @router.post("/reservations", response_model=ReservationCreateOut, status_code=201)
 def create_reservation(
     body: ReservationCreateIn,
+    background_tasks: BackgroundTasks,
     identity=Depends(authenticated, scope="function"),
     db: Session = Depends(get_db),
 ):
     controller = ReservationController(ReservationService(db))
-    return controller.create_reservation(data=body, current_user=identity[0])
+    result = controller.create_reservation(data=body, current_user=identity[0])
+    background_tasks.add_task(notify_reservation_created, result.reservation_id)
+    return result
 
 
 @router.delete("/reservations/{reservation_id}", status_code=204, response_class=Response)

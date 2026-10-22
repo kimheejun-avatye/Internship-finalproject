@@ -1,5 +1,6 @@
 """저장된 예약의 참여자별 참석 알림을 생성하고 Redis에 보관한다."""
 
+import logging
 from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
@@ -11,14 +12,17 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.exceptions import ApiError
 from app.db.redis import get_redis_client
+from app.db.session import SessionLocal
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room
 from app.schemas.notifications import NotificationOut
 from app.services import clock
+from app.services.realtime import event, publish_to_users
 
 KST = ZoneInfo("Asia/Seoul")
 NOTIFICATION_NAMESPACE = UUID("28e823fb-266f-4b89-b330-c21ef2d65040")
+logger = logging.getLogger(__name__)
 
 # 중복 검사, 저장, 보관량 제한을 Redis 안에서 한 번에 실행한다.
 SAVE_NOTIFICATION = """
@@ -66,6 +70,25 @@ class NotificationStore:
                 503, "NOTIFICATION_STORE_UNAVAILABLE", "알림을 저장하지 못했습니다."
             ) from exc
 
+    def list_for_user(self, user_id: UUID) -> list[NotificationOut]:
+        """해당 사용자의 보관 중인 알림을 삭제 없이 최신순으로 조회한다."""
+        try:
+            rows = self.client.lrange(self.key_prefix + str(user_id), 0, -1)
+        except RedisError as exc:
+            raise ApiError(
+                503, "NOTIFICATION_STORE_UNAVAILABLE", "알림을 조회하지 못했습니다."
+            ) from exc
+        items = [NotificationOut.model_validate_json(row) for row in rows]
+        return sorted(
+            items,
+            key=lambda item: (item.created_at, item.notification_id),
+            reverse=True,
+        )
+
+
+def get_notification_store() -> NotificationStore:
+    return NotificationStore()
+
 
 class NotificationService:
     def __init__(self, db: Session, store: NotificationStore | None = None):
@@ -109,3 +132,18 @@ class NotificationService:
             if self.store.save(user_id, notification):
                 saved[user_id] = notification
         return saved
+
+
+def notify_reservation_created(reservation_id: UUID) -> None:
+    """커밋된 예약의 알림을 저장한 뒤 각 수신자의 웹소켓으로 전달한다."""
+    try:
+        with SessionLocal() as db:
+            saved = NotificationService(db, get_notification_store()).create_for_reservation(reservation_id)
+    except Exception:
+        logger.warning("Reservation notification storage failed: %s", reservation_id, exc_info=True)
+        return
+    for user_id, notification in saved.items():
+        try:
+            publish_to_users([user_id], event("notification.created", notification.model_dump(mode="json")))
+        except Exception:
+            logger.warning("Reservation notification delivery failed: %s", notification.notification_id, exc_info=True)
