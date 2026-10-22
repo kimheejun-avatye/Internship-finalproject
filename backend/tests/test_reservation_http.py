@@ -8,9 +8,10 @@ from conftest import signin
 from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
+from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room
-from app.models.users import User
+from app.models.users import Team, User
 from app.services import clock, reservations
 
 
@@ -55,6 +56,57 @@ def test_login_create_and_list_with_real_cookie(client, account):
     assert data["items"][0]["reservation_id"] == created["reservation_id"]
     with SessionLocal() as db:
         assert db.get(Reservation, UUID(created["reservation_id"])).user_id == user_id
+
+
+@pytest.mark.parametrize("organizer_team,invitee_team", [(Team.AVATYE, Team.GURU), (Team.GURU, Team.AVATYE)])
+def test_cross_team_invitation_is_saved_and_shown_in_invitee_calendar(client, account, seed, organizer_team, invitee_team):
+    organizer_id, room_id = account
+    with SessionLocal() as db:
+        db.get(User, organizer_id).team = organizer_team
+        db.commit()
+    invitee_id = seed("invitee@example.com", team=invitee_team)
+    colleague_id = seed("colleague@example.com", team=organizer_team)
+    request = payload(room_id)
+    response = client.post("/api/reservations", json={
+        **request,
+        "attendee_ids": [str(invitee_id), str(colleague_id), str(invitee_id), str(organizer_id)],
+    })
+    assert response.status_code == 201
+    reservation_id = UUID(response.json()["reservation_id"])
+    with SessionLocal() as db:
+        assert set(db.scalars(select(ReservationAttendee.user_id).where(
+            ReservationAttendee.reservation_id == reservation_id,
+        ))) == {organizer_id, invitee_id, colleague_id}
+
+    period = {"start_at": request["start_at"], "end_at": request["end_at"], "scope": "mine"}
+    for email, is_organizer in [("member@example.com", True), ("invitee@example.com", False)]:
+        assert signin(client, email).status_code == 200
+        calendar = client.get("/api/calendar/reservations", params=period)
+        assert calendar.status_code == 200
+        (meeting,) = calendar.json()
+        assert meeting["reservation_id"] == str(reservation_id)
+        assert meeting["participant_count"] == 3
+        assert meeting["is_attending"] is True
+        assert meeting["is_mine"] is is_organizer
+
+
+@pytest.mark.parametrize("state", ["blocked", "pending", "missing", "over_capacity"])
+def test_invalid_attendees_or_capacity_do_not_leave_a_reservation(client, account, seed, state):
+    if state == "over_capacity":
+        attendee_ids = [seed(f"attendee-{i}@example.com", team=Team.GURU) for i in range(6)]
+    else:
+        attendee_ids = [uuid4() if state == "missing" else seed(
+            "invalid@example.com", team=Team.GURU,
+            approved=state != "pending", blocked=state == "blocked",
+        )]
+    response = client.post("/api/reservations", json={
+        **payload(account[1]), "attendee_ids": [str(user_id) for user_id in attendee_ids],
+    })
+    assert response.status_code == (409 if state == "over_capacity" else 404)
+    assert response.json()["detail"]["code"] == ("CAPACITY_EXCEEDED" if state == "over_capacity" else "USER_NOT_FOUND")
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Reservation)) == 0
+        assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == 0
 
 
 @pytest.mark.parametrize("method,path", [("GET", "/api/rooms"),
