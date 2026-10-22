@@ -78,7 +78,7 @@ def seed():
 @pytest.fixture
 def time(monkeypatch):
     class Time:
-        value = datetime(2026, 10, 18, 0, 0, tzinfo=timezone.utc)
+        value = datetime(2026, 10, 19, 0, 0, tzinfo=timezone.utc)
 
         def advance(self, **kwargs):
             from datetime import timedelta

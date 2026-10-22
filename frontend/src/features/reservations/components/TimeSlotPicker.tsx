@@ -1,14 +1,15 @@
 import type { TimeSlot } from "../reservations.types";
-import { isValidDay } from "../reservation-time";
+import { MAX_RESERVATION_HOURS, isValidDay } from "../reservation-time";
 
 export const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}:00`);
 export const slotTime = (date: string, hour: string) => `${date}T${hour}:00+09:00`;
 
-// Every hour must be present and available; missing days are never treated as free time.
+// Every hour must be present and available (at most MAX_RESERVATION_HOURS); missing days are never treated as free time.
 export function isAvailableRange(slots: TimeSlot[], startAt: string, endAt: string) {
   const start = Date.parse(startAt);
   const end = Date.parse(endAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false;
+  if (end - start > MAX_RESERVATION_HOURS * 3_600_000) return false;
   let cursor = start;
   for (const slot of slots) {
     const slotStart = Date.parse(slot.start_at);
