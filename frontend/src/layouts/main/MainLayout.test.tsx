@@ -33,7 +33,7 @@ it("keeps account navigation and the chat layout beside the current page", async
   vi.stubGlobal("fetch", vi.fn(async (path: string) => pageResponse(path)));
   renderMain();
 
-  const header = await screen.findByRole("banner");
+  const header = (await screen.findByRole("link", { name: "캘린더 홈" })).closest("header")!;
   expect(within(header).getByText("김회원")).toBeInTheDocument();
   expect(within(header).getByRole("link", { name: "계정" })).toHaveAttribute("href", "/profile");
   expect(within(header).getByRole("button", { name: "알림 (준비 중)" })).toBeDisabled();
