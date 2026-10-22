@@ -51,7 +51,7 @@ def db():
 
 @pytest.fixture
 def sample(db, now):
-    user = User(email="creator@example.com", name="예약자", password_hash="unused", team=Team.AVATYE)
+    user = User(email="creator@example.com", name="예약자", password_hash="unused", team=Team.AVATYE, approved_at=now)
     room = Room(name="생성 테스트 A회의실", capacity=6)
     other_room = Room(name="생성 테스트 B회의실", capacity=6)
     blocked_room = Room(name="차단 회의실", status=RoomStatus.BLOCK, capacity=6)
@@ -82,8 +82,76 @@ def test_controller_creates_and_commits_reservation(db, sample, now):
         saved = observer.get(Reservation, result.reservation_id)
         assert saved is not None
         assert (saved.title, saved.room_id, saved.user_id) == (result.title, result.room_id, result.user_id)
-        assert observer.scalar(select(func.count()).select_from(ReservationAttendee)) == 0
+        assert list(observer.scalars(select(ReservationAttendee.user_id))) == [sample.user.user_id]
     assert result.model_dump(mode="json")["reservation_id"] == str(result.reservation_id)
+
+
+def test_organizer_in_attendee_ids_is_saved_once(db, sample, now):
+    # 요청 참여자에 주최자가 들어 있어도 중복 없이 한 번만 저장된다.
+    data = request_data(sample, now, attendee_ids=[sample.user.user_id, sample.user.user_id])
+    ReservationController(ReservationService(db)).create_reservation(data, sample.user)
+
+    with SessionLocal() as observer:
+        assert observer.scalars(select(ReservationAttendee.user_id)).all() == [sample.user.user_id]
+
+
+def make_users(db, count, now, **fields):
+    # 승인된 일반 사용자를 만든다. approved_at/blocked_at은 fields로 바꿀 수 있다.
+    fields = {"approved_at": now, **fields}
+    users = [User(email=f"member{uuid4().hex}@example.com", name="참여자", password_hash="unused",
+                  team=Team.AVATYE, **fields) for _ in range(count)]
+    db.add_all(users)
+    db.commit()
+    return users
+
+
+def test_attendees_are_saved_with_organizer(db, sample, now):
+    members = make_users(db, 2, now)
+    data = request_data(sample, now, attendee_ids=[m.user_id for m in members])
+    result = ReservationService(db).create_reservation(sample.user.user_id, data)
+
+    saved = db.scalars(select(ReservationAttendee.user_id).where(
+        ReservationAttendee.reservation_id == result.reservation_id)).all()
+    assert set(saved) == {sample.user.user_id, *(m.user_id for m in members)}
+    assert len(saved) == 3
+
+
+@pytest.mark.parametrize("others, rejected", [(5, False), (6, True)])
+def test_capacity_counts_organizer(db, sample, now, others, rejected):
+    # 정원이 6이므로 주최자 + 참여자 5명은 통과하고, 참여자 6명(총 7명)은 거부한다.
+    members = make_users(db, others, now)
+    data = request_data(sample, now, attendee_ids=[m.user_id for m in members])
+    service = ReservationService(db)
+    if rejected:
+        with pytest.raises(ApiError) as caught:
+            service.create_reservation(sample.user.user_id, data)
+        assert caught.value.status_code == 409
+        assert caught.value.detail["code"] == "CAPACITY_EXCEEDED"
+        assert db.scalar(select(func.count()).select_from(Reservation)) == 0
+        assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == 0
+    else:
+        service.create_reservation(sample.user.user_id, data)
+        assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == others + 1
+
+
+@pytest.mark.parametrize("problem", ["missing", "pending", "blocked"])
+def test_invalid_attendee_is_rejected_and_reported(db, sample, now, problem):
+    if problem == "missing":
+        invalid_id = uuid4()
+    else:
+        fields = {"approved_at": None} if problem == "pending" else {"blocked_at": now}
+        invalid_id = make_users(db, 1, now, **fields)[0].user_id
+    valid = make_users(db, 1, now)[0]
+    data = request_data(sample, now, attendee_ids=[valid.user_id, invalid_id])
+
+    with pytest.raises(ApiError) as caught:
+        ReservationService(db).create_reservation(sample.user.user_id, data)
+    assert caught.value.status_code == 404
+    assert caught.value.detail["code"] == "USER_NOT_FOUND"
+    assert caught.value.detail["message"] == "초대할 수 없는 사용자가 포함되어 있습니다."
+    assert str(valid.user_id) not in caught.value.detail["message"]
+    assert db.scalar(select(func.count()).select_from(Reservation)) == 0
+    assert db.scalar(select(func.count()).select_from(ReservationAttendee)) == 0
 
 
 @pytest.mark.parametrize("changes", [
@@ -171,15 +239,16 @@ def test_timezone_offsets_are_compared_as_instants(db, sample, now):
     assert caught.value.detail["code"] == "RESERVATION_CONFLICT"
 
 
-@pytest.mark.parametrize("failure_stage", ["flush", "response", "commit"])
+@pytest.mark.parametrize("failure_stage", ["flush", "attendees", "response", "commit"])
 def test_failed_creation_rolls_back_and_session_is_reusable(db, sample, now, monkeypatch, failure_stage):
     data = request_data(sample, now)
     with monkeypatch.context() as patch:
-        if failure_stage == "flush":
+        if failure_stage in ("flush", "attendees"):
             original_flush = db.flush
 
             def fail_after_insert(*args, **kwargs):
-                inserting = any(isinstance(row, Reservation) for row in db.new)
+                model = Reservation if failure_stage == "flush" else ReservationAttendee
+                inserting = any(isinstance(row, model) for row in db.new)
                 original_flush(*args, **kwargs)
                 if inserting:
                     raise OperationalError("INSERT reservations", {}, RuntimeError("test failure"))
@@ -197,6 +266,7 @@ def test_failed_creation_rolls_back_and_session_is_reusable(db, sample, now, mon
             ReservationService(db).create_reservation(sample.user.user_id, data)
     with SessionLocal() as observer:
         assert observer.scalar(select(func.count()).select_from(Reservation)) == 0
+        assert observer.scalar(select(func.count()).select_from(ReservationAttendee)) == 0
     result = ReservationService(db).create_reservation(sample.user.user_id, data)
     assert db.get(Reservation, result.reservation_id) is not None
 

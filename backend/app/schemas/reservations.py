@@ -85,7 +85,7 @@ class ReservationCreateIn(BaseModel):
     start_at: AwareDatetime
     end_at: AwareDatetime
     # 참여자 user_id 목록. 주최자는 자동으로 참석자에 포함되므로 넣지 않아도 된다. 다른 팀 사용자도 가능.
-    # TODO: 중복 제거와 최대 인원은 서비스 검사와 맞춘다.
+    # 서비스에서 중복을 제거하고 주최자를 포함한 회의실 정원을 검사한다.
     attendee_ids: list[UUID] = Field(default_factory=list)
 
     @field_validator("title")

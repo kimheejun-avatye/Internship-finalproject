@@ -1,0 +1,66 @@
+.app {
+  --main-header-height: 82px;
+  --main-content-min-width: 720px;
+  --main-chat-width: 384px;
+  height: 100%; height: 100dvh;
+  display: flex; flex-direction: column;
+  overflow-x: auto; overflow-y: hidden; background: #fff;
+}
+.app-header, .app-body {
+  width: 100%; min-width: calc(var(--main-content-min-width) + var(--main-chat-width));
+}
+.app-header {
+  flex: none; min-height: var(--main-header-height);
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 24px;
+  padding: 12px 24px 12px 30px; border-bottom: 1px solid var(--border); background: #fff;
+}
+.main-brand { display: flex; align-items: center; gap: 26px; white-space: nowrap; }
+.main-brand img { display: block; width: 134px; height: auto; }
+.main-brand span { font-size: 23px; line-height: 1.5; }
+.main-header-nav { display: flex; align-items: center; gap: 8px; }
+.main-header-nav a, .main-header-admin {
+  padding: 8px 12px; border-radius: 10px; color: var(--muted); white-space: nowrap;
+}
+.main-header-nav a.active, .main-header-admin.active {
+  color: var(--primary); background: var(--primary-tint); font-weight: 700;
+}
+.main-header-account {
+  grid-column: 3;
+  display: flex; align-items: center; gap: 15px; padding: 7px 12px;
+  border: 1px solid var(--border); border-radius: 18px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+.main-account-link { display: flex; flex-direction: column; gap: 2px; width: 180px; min-width: 0; }
+.main-account-name { font-size: 14px; font-weight: 500; line-height: 21px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.main-account-label { font-size: 12px; line-height: 18px; color: var(--muted); }
+.main-notifications { display: grid; place-items: center; padding: 0; border: 0; background: none; }
+.main-notifications:disabled { cursor: not-allowed; opacity: 0.5; }
+.main-notifications img { display: block; }
+.main-header-divider { width: 1px; height: 24px; background: var(--border); }
+.main-header-logout {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 90px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 12px;
+  background: #fff; color: var(--muted); font-size: 13px; line-height: 18px; white-space: nowrap;
+}
+.main-header-logout img { display: block; }
+.main-header-logout:disabled { cursor: wait; opacity: 0.6; }
+.main-header-error {
+  grid-column: 1 / -1; margin-top: 8px; padding: 10px 12px;
+  border-radius: 8px; background: #fff4f2; color: #d93025; overflow-wrap: anywhere;
+}
+.main-brand:focus-visible, .main-header-nav a:focus-visible,
+.main-account-link:focus-visible, .main-header-admin:focus-visible, .main-header-logout:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 3px;
+}
+.app-body {
+  flex: 1; min-height: 0; display: grid;
+  grid-template-columns: minmax(var(--main-content-min-width), 1fr) var(--main-chat-width);
+}
+.main { min-width: 0; min-height: 0; overflow: auto; padding: 56px 44px 48px; }
+.main:has(> .calendar-page) { padding: 20px 18px 24px; }
+.main:has(> .reservation-page) { padding: 24px 56px; }
+@media (max-width: 1250px) {
+  .main:has(> .reservation-page) { padding: 24px; }
+}
+.main-chat-slot { min-width: 0; min-height: 0; overflow: hidden; border-left: 1px solid var(--border); background: #fff; }
+.page-title { font-size: 28px; font-weight: 700; margin-bottom: 40px; }

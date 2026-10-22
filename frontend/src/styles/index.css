@@ -1,8 +1,7 @@
+@import "./tokens.css";
 @import "./global.css";
-@import "./auth.css";
-@import "./layout.css";
-@import "./reservation.css";
-@import "./calendar.css";
-@import "./admin.css";
+@import "../layouts/auth/AuthLayout.css";
+@import "../layouts/main/MainLayout.css";
+@import "../features/admin/admin.css";
 
 @import "./session.css";

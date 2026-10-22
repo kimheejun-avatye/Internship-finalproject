@@ -1,25 +1,174 @@
-# Frontend
+# 프론트 파일 구조와 구현 현황
 
-React + TypeScript + Vite. 화면은 `src/pages/`, 공통 레이아웃은 `src/components/`, 스타일은 `src/styles/`에 있다.
+기존 파일을 app·layouts·features·shared로 정리했습니다. 프론트 구현은 김희준 담당이며 아래 이름은 백엔드 연동 담당자를 뜻합니다. 담당자가 지정되어 있다는 사실은 해당 API의 연결 완료를 뜻하지 않습니다.
 
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:5173, /api 요청은 http://127.0.0.1:8000 으로 프록시
-npm run build    # 타입 검사 + 프로덕션 빌드
-npm test         # 회원가입 화면 테스트 (vitest)
+2026-10-22, `frontjun` 브랜치의 로컬 작업 파일을 기준으로 실제 코드와 import·라우트·API 호출을 확인했습니다. 아래 상태는 프론트 소스 기준이며, 이번 확인에서 서버를 실행하거나 테스트를 재실행하지 않았습니다.
+
+- `[구현]`: 설명한 역할의 실제 코드가 있으며 현재 앱에서 사용합니다. API 파일은 요청 함수가 구현되어 화면 또는 Provider에서 호출되는 상태를 뜻합니다.
+- `[부분]`: 동작하는 코드가 있으나 임시 데이터 사용, API 미연결 또는 일부 기능 미구현이 남아 있습니다.
+- `[미구현]`: TODO·빈 export·주석만 있는 골격입니다. 파일이나 import 경로만 존재해도 구현으로 표시하지 않습니다.
+- `[테스트 작성]`: 검증 코드가 있습니다. 이번 점검에서 실행 통과를 확인했다는 의미는 아닙니다.
+- `[리소스]`, `[빈 폴더]`: 이미지·환경 타입 또는 폴더 유지용 파일입니다.
+
+## 현재 파일 구조
+
+```text
+frontend/src/
+├─ app/
+│  ├─ App.test.tsx                  # [테스트 작성] 라우팅·인증 가드·캘린더 이동·로그아웃
+│  ├─ App.tsx                       # [구현] AppRoutes 렌더링
+│  ├─ providers.tsx                 # [구현] BrowserRouter·AuthProvider 구성
+│  └─ routes.tsx                    # [구현] 인증·예약·캘린더·관리자·비밀번호 변경 경로 연결
+├─ assets/
+│  └─ logo.svg                      # [리소스] 공통 로고에서 사용
+├─ features/
+│  ├─ account/
+│  │  ├─ components/
+│  │  │  └─ PasswordChangeForm.tsx   # [구현] 입력 검증·변경 API 호출·인증 상태 초기화
+│  │  ├─ pages/
+│  │  │  └─ PasswordChangePage.tsx   # [구현] /profile의 이메일·비밀번호 변경 폼
+│  │  └─ account.api.ts             # [구현] 세션·CSRF를 포함한 비밀번호 변경 요청
+│  ├─ admin/
+│  │  ├─ guards/
+│  │  │  ├─ AdminRoute.test.tsx      # [테스트 작성] 관리자·일반 회원 접근과 메뉴
+│  │  │  └─ AdminRoute.tsx           # [구현] ADMIN 통과, 그 외 /reservations로 이동
+│  │  ├─ pages/
+│  │  │  ├─ AdminPage.test.tsx       # [테스트 작성] 목록·승인·거절·차단·실패 처리
+│  │  │  └─ AdminPage.tsx            # [부분] 관리 API 연결, 오늘의 예약 통계 미구현
+│  │  ├─ admin.api.ts               # [구현] 회원 조회·승인·거절·차단, 회의실 조회·차단
+│  │  └─ admin.css                  # [구현] 관리자 화면 스타일
+│  ├─ auth/
+│  │  ├─ components/
+│  │  │  └─ PrivacyDialog.tsx        # [구현] 수집·이용 안내 모달과 닫기 동작
+│  │  ├─ guards/
+│  │  │  ├─ LoggedOutRoute.tsx       # [구현] 세션 확인 대기·로그인 시 /calendar 이동
+│  │  │  └─ ProtectedRoute.tsx       # [구현] 로그인 검사·확인 오류 재시도·/login 이동
+│  │  ├─ hooks/
+│  │  │  └─ useSessionActivity.ts    # [구현] 사용자 활동 API 호출·만료 시각 갱신
+│  │  ├─ pages/
+│  │  │  ├─ LoginPage.test.tsx       # [테스트 작성] 로그인·세션 복원·보호 경로·비밀번호 변경
+│  │  │  ├─ LoginPage.tsx            # [구현] 로그인 API·오류 안내·성공 후 /calendar 이동
+│  │  │  ├─ PasswordResetPage.test.tsx # [테스트 작성] 인증·재설정 요청·토큰 만료
+│  │  │  ├─ PasswordResetPage.tsx    # [구현] 이메일 인증·비밀번호 재설정 API 연결
+│  │  │  ├─ SignupPage.test.tsx      # [테스트 작성] 가입 흐름·검증·인증 실패·개인정보 안내
+│  │  │  └─ SignupPage.tsx           # [구현] 이메일 인증·가입 API·입력 검증·동의·완료 안내
+│  │  ├─ AuthProvider.tsx           # [구현] 로그인·로그아웃·세션 복원·만료 확인·탭 간 동기화
+│  │  ├─ auth.api.ts                # [구현] 로그인·세션 조회·로그아웃·활동 요청
+│  │  ├─ auth.types.ts              # [구현] 사용자·세션·만료 시각 타입
+│  │  ├─ password-reset.api.ts      # [구현] 재설정 인증번호 발송·확인·비밀번호 재설정 요청
+│  │  ├─ signup.api.ts              # [구현] 이메일 확인·인증번호 발송/검증·가입 요청
+│  │  └─ validation.ts              # [구현] 이메일·이름·생일·전화·비밀번호 검증과 정규화
+│  ├─ chat/
+│  │  ├─ components/
+│  │  │  ├─ ChatRoomRow.tsx          # [미구현] 채팅방 목록의 한 행
+│  │  │  ├─ FriendRow.tsx            # [미구현] 친구 목록의 한 행
+│  │  │  ├─ MessageBubble.tsx        # [미구현] 메시지 말풍선
+│  │  │  └─ MessageComposer.tsx      # [미구현] 메시지 입력창
+│  │  ├─ views/
+│  │  │  ├─ ChatRoomListView.tsx     # [미구현] 채팅방 목록
+│  │  │  ├─ ConversationView.tsx     # [미구현] 개인·단체 대화
+│  │  │  ├─ CreateChatRoomView.tsx   # [미구현] 채팅방 생성
+│  │  │  └─ FriendListView.tsx       # [미구현] 친구 목록
+│  │  └─ ChatPanel.tsx              # [미구현] 패널 내부 화면 전환, 앱 미연결
+│  ├─ meeting-notes/
+│  │  ├─ components/
+│  │  │  └─ .gitkeep                # [빈 폴더] 메모 컴포넌트 없음
+│  │  └─ pages/
+│  │     └─ MeetingNotePage.tsx      # [미구현] 회의 메모 화면·API·라우트 연결 없음
+│  └─ reservations/
+│     ├─ components/
+│     │  └─ .gitkeep                # [빈 폴더] 예약 컴포넌트 분리 전
+│     ├─ mocks/
+│     │  └─ data.ts                 # [부분] 예약·회의실 임시 데이터와 화면용 타입
+│     ├─ pages/
+│     │  ├─ CalendarPage.tsx        # [부분] 주간 표시·주 이동 구현, 임시 데이터·API 미연결
+│     │  └─ ReservationPage.tsx     # [부분] 선택·시간 검증·로컬 추가, 날짜 고정·API 미연결
+│     ├─ calendar.css              # [구현] 캘린더 화면 스타일
+│     ├─ reservation.css           # [구현] 예약 화면 스타일
+│     ├─ reservations.api.ts       # [미구현] 예약 API 호출 함수 없음
+│     └─ reservations.types.ts     # [미구현] 서버 요청·응답 타입 없음
+├─ layouts/
+│  ├─ auth/
+│  │  ├─ AuthLayout.css             # [구현] 인증 폼·완료 안내·모달 공통 스타일
+│  │  └─ AuthLayout.tsx             # [구현] 로그인·비밀번호 찾기 공통 배치만 담당
+│  ├─ chat/
+│  │  ├─ ChatLayout.css             # [미구현] 오른쪽 채팅 영역 스타일
+│  │  └─ ChatLayout.tsx             # [미구현] 오른쪽 고정 채팅 배치, 앱 미연결
+│  └─ main/
+│     ├─ MainHeader.tsx             # [미구현] 독립 헤더·홈 이동·계정·알림
+│     ├─ MainLayout.css             # [구현] 헤더·사이드바·본문 배치 스타일
+│     └─ MainLayout.tsx             # [부분] 로고·메뉴·로그아웃 구현, 별도 헤더·채팅 미연결
+├─ shared/
+│  ├─ api/
+│  │  ├─ client.ts                  # [구현] HTTP 요청·네트워크/서버/필드 검증 오류 변환
+│  │  └─ session-client.ts          # [구현] 세션·CSRF 헤더·인증 소실 이벤트 처리
+│  ├─ hooks/
+│  │  └─ useCountdown.ts            # [구현] 인증번호 재전송 대기 카운트다운
+│  └─ ui/
+│     ├─ Button.tsx                 # [미구현] 공통 버튼 컴포넌트
+│     ├─ Logo.tsx                   # [구현] 로고 이미지 표시 (홈 이동 링크 없음)
+│     └─ TextField.tsx              # [미구현] 공통 입력 필드 컴포넌트
+├─ styles/
+│  ├─ global.css                    # [구현] 기본 스타일·공통 클래스·현재 디자인 변수
+│  ├─ index.css                     # [구현] 사용 중인 CSS를 순서대로 import
+│  ├─ session.css                   # [구현] 세션 안내·비밀번호 변경 화면 스타일
+│  └─ tokens.css                    # [미구현] 주석만 존재, 변수는 현재 global.css에 정의
+├─ test/
+│  └─ setup.ts                      # [테스트 작성] Testing Library matcher 설정
+├─ main.tsx                         # [구현] React 실행·Provider·전역 CSS 연결
+└─ vite-env.d.ts                    # [리소스] Vite 환경 타입 선언
 ```
 
-| 경로 | 화면 |
+## 기능별로 구현된 것과 남은 것
+
+| 기능 | 현재 구현한 것 | 남은 것·연결 상태 |
+|---|---|---|
+| 로그인·접근 가드 | 로그인 요청, 세션 확인, 로그인/비로그인/관리자 접근 제어, 캘린더 이동 | 현재 라우트에 연결됨. 실제 서버와의 실행 검증은 이번 점검 범위 밖 |
+| 회원가입 | 이메일 확인·인증번호 발송/검증·가입 요청, 입력 검증, 개인정보 동의, 승인 대기 안내 | API 요청 코드가 화면에 연결됨. 자체 `auth-page` 래퍼 사용 |
+| 비밀번호 찾기·변경 | 이메일 인증 후 재설정, 현재 비밀번호를 통한 변경, 변경 후 로컬 인증 초기화 | API 요청 코드가 화면에 연결됨. 다른 기기의 세션 종료는 서버 처리 영역 |
+| 세션 관리 | 복원·로그아웃·만료 재확인·활동 알림·CSRF·탭 간 재조회 | `AuthProvider`와 공통 요청 모듈에서 사용 중 |
+| 관리자 | 회원·회의실 조회, 가입 승인/거절, 회원 차단, 회의실 차단, 응답에 따른 화면 갱신 | `오늘의 예약`은 `-`와 연동 예정 안내만 표시 |
+| 캘린더 | 주간 시간표, 이전/다음 주·오늘 이동, 내 예약/다른 예약 표시 | `mocks/data.ts`의 고정 예약만 사용. 예약 API 조회·로컬 예약 추가 결과 공유 없음 |
+| 예약 | 회의실 선택, 일정 표시, 제목·시간 순서·중복 검사, React state에 예약 추가 | 날짜는 `2026-10-16` 고정. 서버 저장·조회 없음. 새로고침/페이지 이탈 시 추가 예약 소실 |
+| 메인 배치·헤더 | `MainLayout` 안의 로고 헤더·사이드바·권한별 메뉴·로그아웃 | `MainHeader`는 미구현·미사용. 로고 홈 이동·계정 메뉴·알림·오른쪽 채팅 미구현 |
+| 채팅·회의 메모 | 파일과 폴더 골격 | 컴포넌트·화면·API·앱 연결 미구현. 메모 라우트도 없음 |
+| 공통 UI·디자인 변수 | `Logo`, HTML button/input과 공통 CSS, `global.css`의 변수 | `Button.tsx`, `TextField.tsx`, `tokens.css`는 미구현 |
+| 테스트 | 앱·로그인·회원가입·비밀번호 재설정·관리자 화면/가드 테스트 작성 | fetch 모의 응답 기반. 예약·캘린더 전용 테스트 파일은 없음 |
+
+인증 가드와 인증/계정/관리자 API 요청은 이미 구현되어 있으므로 전체를 “후속 단계에서 구현”으로 분류하지 않습니다. 반대로 화면이 보인다는 이유만으로 임시 데이터 기반 예약·캘린더를 서버 연동 완료로 분류하지 않습니다.
+
+## 기존 위치 → 변경 위치
+
+- `App.tsx`의 라우팅 → `app/routes.tsx`
+- `main.tsx`의 Provider 구성 → `app/providers.tsx`
+- 인증 화면·Provider·가드·API·타입 → `features/auth`
+- `pages/profile` → `features/account` (`ProfilePage` → `PasswordChangePage`)
+- 캘린더·예약 화면·목 데이터 → `features/reservations`
+- 관리자 화면·가드·API → `features/admin`
+- `components/AppLayout.tsx` → `layouts/main/MainLayout.tsx`
+- `layouts/AuthLayout.tsx` → `layouts/auth/AuthLayout.tsx`
+- `components/Logo.tsx` → `shared/ui/Logo.tsx`
+- 기능별 CSS → 각 기능·레이아웃 폴더
+
+구조 이동 시 import와 CSS 경로를 정리했습니다. 이후 인증 변경으로 `GuestRoute.tsx` 골격을 `LoggedOutRoute.tsx` 구현으로 교체했고, 로그인 사용자 및 로그인 성공 후 이동 목적지는 `/calendar`입니다.
+
+## 담당자별 확인 위치
+
+| 담당자 | 확인할 파일·폴더 |
 |---|---|
-| `/login` | 로그인 |
-| `/signup` | 회원가입 |
-| `/reservations` | 회의실 예약 |
-| `/calendar` | 예약 캘린더 |
-| `/admin` | 관리자 |
+| 김희준 — 프론트 | `app/routes.tsx`, `layouts/`, `features/`, `shared/ui/` |
+| 황희구 — 예약 API | `features/reservations/pages/ReservationPage.tsx`, `reservations.api.ts`, `reservations.types.ts` |
+| 최우석 — 캘린더·메모·알림 API | `features/reservations/pages/CalendarPage.tsx`, `features/meeting-notes/pages/MeetingNotePage.tsx`, `layouts/main/MainHeader.tsx` |
+| 이찬석 — 사용자 검색·채팅 API | `features/chat/ChatPanel.tsx`, `features/chat/views/`, `features/chat/components/` |
 
-서버 API가 연결되기 전까지 예약·구성원 데이터는 `src/mocks/data.ts`의 임시 데이터를 쓴다.
+공통 HTTP·세션·CSRF 처리는 `shared/api/`에서 확인합니다.
 
-회원가입 화면은 백엔드 `/api/auth/signup/*`에 연결된다. 개발 서버와 함께 백엔드를 띄워야 한다
-(`cd backend && SECRET_KEY=... .venv/bin/python -m uvicorn app.main:app`).
-SMTP를 설정하지 않으면 인증번호가 백엔드 로그에 출력된다.
+로그인·회원가입·비밀번호 찾기의 접근 검사는 `LoggedOutRoute`에서 처리합니다.
+`LoggedOutRoute`는 세션 조회 중 상태 안내를 표시하고, 로그인 상태이면 `/calendar`로 이동하며, 로그아웃 상태이면 하위 화면을 표시합니다. `LoginPage`도 로그인 성공 후 `/calendar`로 이동합니다.
+
+현재 인증 경로 연결은 다음과 같습니다.
+
+- `/login`, `/password/reset`: `LoggedOutRoute` → `AuthLayout` → 각 페이지
+- `/signup`: `LoggedOutRoute` → `SignupPage` (자체 `auth-page` 래퍼 사용)
+
+`AuthLayout`은 공통 배치만 담당합니다. 회원가입 화면까지 `AuthLayout`으로 통합된 상태는 아닙니다. 기존 보호 경로는 `ProtectedRoute` → `MainLayout` 아래에 있으며, `/profile`도 이 배치를 사용합니다. 알 수 없는 경로는 기존과 같이 `/reservations`로 이동합니다.

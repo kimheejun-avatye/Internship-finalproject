@@ -10,6 +10,7 @@ from app.db.session import SessionLocal
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room
+from app.models.users import Team
 
 PATH = "/api/calendar/reservations"
 
@@ -17,7 +18,7 @@ PATH = "/api/calendar/reservations"
 @pytest.fixture
 def calendar_data(client, seed, time):
     me = seed()
-    other = seed("calendar-other@example.com")
+    other = seed("calendar-other@example.com", team=Team.GURU)
     assert signin(client).status_code == 200
     start = datetime.fromisoformat("2026-10-23T00:00:00+09:00")
 

@@ -168,9 +168,10 @@ def get_calendar_rooms(
     return controller.get_calendar_rooms(identity[0])
 
 
-# TODO: 가능 시간 조회. 날짜 형식 오류는 FastAPI가 422로 처리한다.
+# 가능한 시간 조회 API :  회의실 ID, 날짜, 슬롯 길이를 쿼리로 받아 컨트롤러에 전달한다.
 @router.get("/rooms/{room_id}/availability", response_model=list[TimeSlotOut])
 def get_room_availability(
+    response: Response,
     room_id: UUID,
     date: date_type,
     slot_minutes: int = Query(default=60, ge=60, le=60),
@@ -178,5 +179,6 @@ def get_room_availability(
     controller: ReservationController = Depends(get_reservation_controller),
 ):
     query = AvailabilityQuery(room_id=room_id, date=date, slot_minutes=slot_minutes)
+    response.headers["Cache-Control"] = "no-store"
     return controller.get_room_availability(query, identity[0])
 
