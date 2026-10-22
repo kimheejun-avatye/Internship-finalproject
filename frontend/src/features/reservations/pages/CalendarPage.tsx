@@ -97,7 +97,7 @@ export default function CalendarPage() {
       onScopeChange={value => update({ scope: value })}
       onRoomChange={value => update({ room_id: value })}
     />
-    {location.state?.reservationCreated && <p className="calendar-feedback saved" role="status">예약이 저장되었습니다.</p>}
+    {location.state?.reservationCreated && <p className="calendar-feedback saved" role="status">{location.state.message ?? "예약이 저장되었습니다."}</p>}
     {roomError && <p className="calendar-feedback error" role="alert">{roomError} <button type="button" onClick={() => setRetry(n => n + 1)}>회의실 다시 조회</button></p>}
     {loading && <p className="calendar-feedback" role="status">예약을 불러오는 중입니다.</p>}
     {error && <p className="calendar-feedback error" role="alert">{error} <button type="button" onClick={() => setRetry(n => n + 1)}>다시 조회</button></p>}
