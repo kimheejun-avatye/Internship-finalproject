@@ -1,3 +1,8 @@
+// 예약 규칙. 서버(backend/app/schemas/reservations.py)의 같은 값과 맞춘다.
+export const MAX_TITLE_LENGTH = 32;
+export const MAX_RESERVATION_HOURS = 4;
+export const MAX_BOOKING_DAYS = 365;
+
 const SEOUL_DAY = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
 });

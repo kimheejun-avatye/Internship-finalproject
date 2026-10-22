@@ -13,10 +13,11 @@ from app.models.users import Role, Team, User
 from app.schemas.reservations import ReservationCreateIn
 from app.services.reservations import ReservationService
 
-# 차단 구간: 지금부터 1시간 뒤 ~ 2시간 뒤
+# 예약은 평일 정각 단위만 가능하므로 먼 미래의 월요일 11:00 ~ 13:00을 차단한다.
 NOW = datetime.now(ZoneInfo("Asia/Seoul")).replace(second=0, microsecond=0)
-BLOCK_START = NOW + timedelta(hours=1)
-BLOCK_END = NOW + timedelta(hours=2)
+MONDAY = datetime(2030, 1, 7, tzinfo=ZoneInfo("Asia/Seoul"))
+BLOCK_START = MONDAY + timedelta(hours=11)
+BLOCK_END = MONDAY + timedelta(hours=13)
 
 
 @pytest.fixture
@@ -38,24 +39,24 @@ def create(member, room, start, end):
         return ReservationService(db).create_reservation(member.user_id, data)
 
 
-@pytest.mark.parametrize("start_minutes, end_minutes", [
-    (30, 90),    # 앞부분이 차단과 겹침
-    (90, 150),   # 뒷부분이 차단과 겹침
-    (70, 80),    # 차단 안에 포함
-    (30, 180),   # 차단을 감쌈
+@pytest.mark.parametrize("start_hour, end_hour", [
+    (10, 12),   # 앞부분이 차단과 겹침
+    (12, 14),   # 뒷부분이 차단과 겹침
+    (11, 12),   # 차단 안에 포함
+    (10, 14),   # 차단을 감쌈
 ])
-def test_reservation_overlapping_block_is_rejected(setup, start_minutes, end_minutes):
+def test_reservation_overlapping_block_is_rejected(setup, start_hour, end_hour):
     member, room = setup
 
     with pytest.raises(ApiError) as error:
-        create(member, room, NOW + timedelta(minutes=start_minutes), NOW + timedelta(minutes=end_minutes))
+        create(member, room, MONDAY + timedelta(hours=start_hour), MONDAY + timedelta(hours=end_hour))
 
     assert error.value.status_code == 409
     assert error.value.detail["code"] == "ROOM_BLOCKED"
 
 
 @pytest.mark.parametrize("start, end", [
-    (NOW + timedelta(minutes=10), BLOCK_START),  # 차단 시작에 딱 맞춰 끝남
+    (MONDAY + timedelta(hours=9), BLOCK_START),  # 차단 시작에 딱 맞춰 끝남
     (BLOCK_END, BLOCK_END + timedelta(hours=1)),  # 차단이 끝나자마자 시작
 ])
 def test_reservation_touching_block_is_allowed(setup, start, end):

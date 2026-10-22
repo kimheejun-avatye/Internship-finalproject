@@ -27,6 +27,10 @@ from app.schemas.reservations import (
 )
 
 
+# 가능 시간 조회가 허용하는 오늘 이후 최대 일수
+AVAILABILITY_MAX_DAYS = 365
+
+
 # 예약·캘린더 조회 규칙을 담당하는 서비스
 class ReservationService:
     """기존 동기 Session을 주입받으며 세션을 생성하거나 종료하지 않는다.
@@ -324,6 +328,11 @@ class ReservationService:
         TODO: create_reservation의 중복 검사 조건과 일치하는지 확인한다.
         """
 
+        # 한국 시간 기준 오늘부터 1년 이내만 조회한다. 범위 밖(예: 9999-12-31)은 날짜 계산 오버플로를 일으킨다.
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        if not today <= query.date <= today + timedelta(days=AVAILABILITY_MAX_DAYS):
+            raise ApiError(422, "INVALID_DATE", f"조회할 수 있는 날짜는 오늘부터 {AVAILABILITY_MAX_DAYS}일 이내입니다.")
+
         room = self.db.get(Room, query.room_id)
 
         if room is None:
@@ -388,6 +397,11 @@ class ReservationService:
         """
 
         attendee_ids = list(dict.fromkeys([organizer_id, *attendee_ids]))
+
+        # 정원 검사는 목록 길이만으로 가능하므로 DB 조회보다 먼저 한다.
+        if room.capacity < len(attendee_ids):
+            raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
+
         valid_ids = set(self.db.scalars(
             select(User.user_id)
             .where(
@@ -398,9 +412,6 @@ class ReservationService:
         ))
         if len(valid_ids) != len(attendee_ids):
             raise ApiError(404, "USER_NOT_FOUND", "초대할 수 없는 사용자가 포함되어 있습니다.")
-
-        if room.capacity < len(attendee_ids):
-            raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
 
         return attendee_ids
 
