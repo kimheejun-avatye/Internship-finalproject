@@ -172,3 +172,32 @@ frontend/src/
 - `/signup`: `LoggedOutRoute` → `SignupPage` (자체 `auth-page` 래퍼 사용)
 
 `AuthLayout`은 공통 배치만 담당합니다. 회원가입 화면까지 `AuthLayout`으로 통합된 상태는 아닙니다. 기존 보호 경로는 `ProtectedRoute` → `MainLayout` 아래에 있으며, `/profile`도 이 배치를 사용합니다. 알 수 없는 경로는 기존과 같이 `/reservations`로 이동합니다.
+
+## 사용자 선택 공통화 — 후속 변경
+
+이 절은 위 구조 점검 이후 적용한 사용자 선택 기능의 현재 연결 범위를 설명한다.
+
+- `app/providers.tsx`에서 로그인 계정별 `UserDirectoryProvider`를 연결한다. 최초 사용자 선택 시에만 `/api/users/search?q=&limit=50`을 조회하고, `next_cursor`가 끝날 때까지 수집한다. 여러 소비자와 새로고침 요청은 진행 중인 같은 Promise를 공유한다.
+- `shared/hooks/useSelectableUsers.ts`는 Provider 상태를 읽는다. 기본 호출은 캐시를 재사용하고, `refresh()`는 새로 조회한다. `enabled: false`는 조회 없이 상태만 구독한다. `UserPicker`는 열릴 때 `refreshOnMount: true`로 갱신하며, 화면의 새로고침 버튼도 같은 함수를 쓴다.
+- `shared/users/filterUsersByName.ts`와 `UserPicker.tsx`에서 이름 부분 검색, 단일·다중 선택, 제외 ID, 선택 칩, 로딩·실패·빈 목록을 처리한다. 타이핑 중에는 API를 호출하지 않는다. 이메일·소속을 표시하지만 검색은 이름만 대상으로 한다. 현재 사용자 검색 응답에 부서/직무 필드가 없어 표시하지 않는다.
+- 로그아웃·계정 변경 시 목록과 선택 상태를 폐기하고 진행 중인 요청을 취소한다. 늦은 이전 계정 응답은 새로운 계정의 목록이나 인증 상태에 반영하지 않는다.
+- `AttendeePicker`, `FriendListView`, `CreateChatRoomView`는 같은 Provider와 `UserPicker`를 사용한다. 예약자 포함 정원 계산과 `attendee_ids`를 예약 API에 보내는 처리는 예약 기능에 남긴다.
+- 실제 앱의 `ChatPanel`은 로그인 사용자로 `chat.live.ts`를 사용한다. 공통 사용자 선택기에서 개인·단체방 생성, 방 목록·메시지 조회·전송, 이전 메시지 조회와 WebSocket 연결·재연결을 처리한다. 서버에 읽음 정보가 없어 실제 모드의 탭 숫자는 방 수이며 안 읽음 필터를 표시하지 않는다. 기존 방에 추가로 초대하는 UI와 예약 공유·알림 화면은 별도 연결이 필요하다.
+- 기존 임시 대화·목록·초안·전송 예시는 `chat-preview.html` → `PreviewChatPanel` → `chat.data.ts`/`mocks`에서만 사용한다. 이 미리보기도 같은 선택 컴포넌트를 쓰되 별도 Provider에 임시 목록 소스를 명시적으로 주입한다.
+- 기존 `FriendRow.tsx`와 채팅 전용 `filterUsers.ts`의 중복 구현은 공통 `UserPicker`·이름 필터로 대체했다.
+
+## 캘린더 카드·개인 회의록·예약 삭제 — 2026-10-22 후속 변경
+
+이 절은 위 최초 구조 점검 이후 적용한 예약·회의록의 실제 연결 상태를 설명한다.
+
+- `WeekCalendar`는 1시간 144px을 기준으로 시간 눈금·배경·카드·최초 스크롤을 함께 계산한다. 동시간 예약은 레인당 220px을 확보한다. 내용의 실제 높이가 부족하면 카드만 늘리지 않고 시간축 전체를 늘린다. `MonthCalendar` 카드는 내용에 맞춰 높이가 늘어나며 날짜·`+N건` 주간 이동을 유지한다.
+- 두 보기의 `ReservationActions`는 `삭제`·`회의록`을 제공한다. 삭제는 생성자(`is_mine`), 회의록은 실제 참석자(`is_attending`)에게만 활성화한다. 서버에서도 각각 권한을 검증한다.
+- 예약 범위는 `전체 보기 / 나만 보기`로 표시한다. API는 `scope=all`로 조회하고, 나만 보기에서는 주간·월간 공통 목록을 `is_attending`으로 필터링해 다른 사람이 만든 초대 회의도 포함한다. 빈 결과는 ‘조회 기간에 내가 참석하는 예약이 없습니다.’로 안내한다. 생성자 표시·색상과 삭제 권한의 `is_mine` 기준은 유지한다. 기존 예약의 참석자 행 누락 여부는 별도 확인 항목이며, 누락된 예약은 나만 보기에서 제외될 수 있다.
+- `DELETE /api/reservations/{reservation_id}` → `204 No Content`. 생성자만 삭제할 수 있다. 해당 예약의 **모든 사용자의 개인 회의록, 참석자 등록 정보, 예약 행을 한 트랜잭션으로 삭제**한다. 다른 예약의 데이터는 보존한다. 존재하지 않으면 `404 RESERVATION_NOT_FOUND`, 생성자가 아니면 `403 RESERVATION_FORBIDDEN`이다. 로그인·Origin·CSRF·JSON 헤더 검사는 유지한다.
+- `memo` 외래키에는 CASCADE가 없어 서비스에서 메모부터 명시적으로 정리한다. 삭제·메모 저장은 같은 예약 행을 잠가 동시 저장과 충돌하지 않게 한다. 기존 `0009` 마이그레이션의 `(reservation_id,user_id)` 고유키가 필요하다.
+- 확인창에 제목·일시와 전체 개인 회의록 삭제 범위를 표시한다. 요청 중 중복을 막고 실패 시 카드를 유지한다. 삭제 성공 이후 재조회 실패는 삭제 실패와 구분한다. 날짜·보기·회의실·참석 기준 예약 범위(`scope`)를 URL에 유지한다.
+- `/reservations/:reservationId/memo`는 `ProtectedRoute → MainLayout` 안에서 공통 헤더·채팅을 유지한다. `date`로 예약 정보를 재조회하고 `calendar_date`, `view`, `scope`, `room_id`로 캘린더 복귀 상태를 복원한다.
+- 기존 `GET/PUT /api/reservations/{reservation_id}/memo`를 사용한다. GET의 `null`은 빈 편집기이며 최초 PUT 때만 행이 생성된다. PUT 본문은 `{ "memo": "내용" }`만 보내고 작성자는 로그인 세션에서 결정한다. 저장 실패 시 내용을 보존하며 최근 저장은 `updated_at ?? created_at`이다.
+- `main.tsx`의 Data Router와 `useBlocker`로 앱 내 이동·뒤로 가기를 확인하고 `beforeunload`로 새로고침·탭 닫기를 안내한다. 기존 라우트 구조와 인증 검사는 유지한다.
+- 참석자 이름 목록은 캘린더 응답에 없어 실제 `participant_count`만 표시한다. 전체 사용자 목록으로 참석자를 추정하지 않는다.
+- 관련 테스트: `CalendarPage.test.tsx`, `MeetingNotePage.test.tsx`, `CalendarMemo.integration.test.tsx`, `backend/tests/test_reservation_delete.py`. 실제 DB 삭제·메모 생성/수정·권한·실패 롤백·동시 삭제/저장은 별도 PostgreSQL 테스트 DB에서 검증한다.

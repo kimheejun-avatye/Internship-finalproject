@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import App from "../../../app/routes";
 import { setCsrfToken } from "../../../shared/api/session-client";
-import { AuthProvider } from "../../auth/AuthProvider";
+import { AuthenticatedProviders as AuthProvider } from "../../../app/providers";
 
 const sessionOf = (role: "ADMIN" | "MEMBER") => ({
   user: { user_id: "u1", email: "user@example.com", name: "사용자", team: "AVATYE", role },

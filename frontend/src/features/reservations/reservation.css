@@ -5,30 +5,30 @@
 .reservation-page-heading > a:hover { color: var(--primary); text-decoration: underline; }
 .reservation-booking { display: flex; flex-direction: column; gap: 14px; }
 .reservation-form-card { border: 1px solid var(--reservation-border); border-radius: 24px; background: white; padding: 18px 28px 14px; }
-.reservation-field { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 12px; }
-.reservation-field-label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
-.reservation-field input, .reservation-field select, .attendee-picker-trigger, .attendee-picker-search input { width: 100%; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; color: var(--text); font: inherit; font-size: 14px; }
-.reservation-field input::placeholder { color: var(--muted); font-size: 12px; }
+.reservation-field { min-width: 0; display: flex; flex-direction: column; gap: 8px; color: #343b48; font-size: 14px; font-weight: 600; line-height: 22px; }
+.reservation-field-label { display: block; margin-bottom: 8px; color: #343b48; font-size: 14px; font-weight: 600; line-height: 22px; }
+.reservation-field input, .reservation-field select, .attendee-picker-trigger, .attendee-picker-search input { width: 100%; min-width: 0; height: 44px; padding: 0 12px; border: 1px solid #bbc2ce; border-radius: 8px; background: #fff; color: #202124; font: inherit; font-size: 16px; font-weight: 400; line-height: 24px; }
+.reservation-field input::placeholder { color: #626b79; font-size: 14px; opacity: 1; }
 .reservation-field input:focus-visible, .reservation-field select:focus-visible, .attendee-picker-trigger:focus-visible, .attendee-picker-search input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .reservation-field input:disabled, .reservation-field select:disabled { background: #f7f8fb; color: var(--muted); }
-.reservation-input-row { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(180px, 1.5fr); gap: 10px; align-items: start; margin-top: 12px; }
+.reservation-input-row { display: grid; grid-template-columns: minmax(145px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) minmax(180px, 1.5fr); gap: 16px 12px; align-items: start; margin-top: 18px; }
 .reservation-date-options { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; margin-top: 10px; }
-.reservation-cross-day { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-.reservation-cross-day input { width: 14px; height: 14px; accent-color: var(--primary); }
+.reservation-cross-day { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #505b6a; line-height: 22px; }
+.reservation-cross-day input { width: 16px; height: 16px; accent-color: var(--primary); }
 .reservation-end-date { flex-direction: row; align-items: center; }
 .reservation-end-date input { width: 150px; }
-.reservation-field-hint { display: block; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.reservation-field-hint { display: block; font-size: 13px; color: #59616d; line-height: 1.6; }
 .reservation-form-card > .reservation-field-hint { margin: 8px 0 0; }
-.reservation-selected-range { font-size: 12px; color: var(--primary); margin: 8px 0 0; }
+.reservation-selected-range { font-size: 14px; font-weight: 500; line-height: 22px; color: var(--primary); margin: 8px 0 0; }
 .reservation-selected-range span { color: var(--muted); }
 .reservation-inline-error, .reservation-capacity-warning { color: #b3261e; font-size: 12px; line-height: 1.6; }
 .reservation-inline-error { margin: 8px 0 0; }
 .reservation-inline-error button { color: var(--primary); background: white; border: 0; padding: 3px 6px; text-decoration: underline; }
 .attendee-picker { position: relative; min-width: 0; }
-.attendee-picker-trigger { display: flex; justify-content: space-between; align-items: center; text-align: left; font-size: 12px; }
+.attendee-picker-trigger { display: flex; justify-content: space-between; align-items: center; text-align: left; font-size: 16px; }
 .attendee-picker-trigger:disabled { cursor: not-allowed; background: #f7f8fb; }
-.attendee-picker > .reservation-field-hint, .attendee-picker > .reservation-capacity-warning { margin-top: 4px; font-size: 10px; }
-.attendee-picker-popover { position: absolute; right: 0; top: 58px; z-index: 10; width: max(100%, 340px); max-width: min(400px, 80vw); padding: 14px; border: 1px solid var(--reservation-border); border-radius: 12px; background: white; box-shadow: 0 10px 30px #2021241a; }
+.attendee-picker > .reservation-field-hint, .attendee-picker > .reservation-capacity-warning { margin-top: 6px; font-size: 12px; line-height: 18px; }
+.attendee-picker-popover { position: absolute; right: 0; top: calc(100% + 8px); z-index: 10; width: max(100%, 340px); max-width: min(400px, 80vw); padding: 14px; border: 1px solid var(--reservation-border); border-radius: 12px; background: white; box-shadow: 0 10px 30px #2021241a; }
 .attendee-picker-search { display: flex; gap: 6px; align-items: center; }
 .attendee-picker-search input { flex: 1; font-size: 12px; }
 .attendee-picker-close { flex: none; background: #fff; border: 0; color: var(--muted); font-size: 12px; padding: 6px; }
@@ -91,6 +91,25 @@
 
 .attendee-picker-option.busy { opacity: 0.55; cursor: not-allowed; }
 
+/* 선택한 날짜의 전체 일정: Figma의 스크롤 행과 빈 시간 선택 강조를 사용한다. */
+.reservation-day-hours { list-style: none; margin: 0; padding: 0; }
+.reservation-day-hours > li + li { border-top: 1px solid #edf0f5; }
+.reservation-hour-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) auto; align-items: center; gap: 16px; width: 100%; min-height: 68px; padding: 12px 10px; border: 1px solid transparent; border-radius: 7px; text-align: left; font: inherit; font-size: 13px; background: white; color: var(--text); }
+.reservation-hour-row time { color: var(--primary); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.reservation-hour-row.free:enabled { background: #f3f5ff; cursor: pointer; }
+.reservation-hour-row.free:enabled:hover { background: #e5eaff; }
+.reservation-hour-row.free.selected { background: #d6ddff; border-color: var(--primary); }
+.reservation-hour-row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.reservation-hour-row:disabled { background: #f8f9fb; color: var(--muted); cursor: not-allowed; }
+.reservation-hour-row:disabled time { color: #68717d; }
+.reservation-hour-meeting { display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+.reservation-hour-meeting + .reservation-hour-meeting { margin-top: 8px; }
+.reservation-hour-meeting strong { font-size: 15px; font-weight: 600; }
+.reservation-hour-meeting > span, .reservation-hour-status { font-size: 12px; color: var(--muted); }
+.reservation-hour-row.selected .reservation-hour-status { color: var(--primary); font-weight: 700; }
+.reservation-schedule-description { font-size: 12px; line-height: 1.6; }
+@media (max-width: 1200px) { .reservation-hour-row { grid-template-columns: 112px minmax(0, 1fr) auto; gap: 10px; } }
+@media (max-width: 600px) { .reservation-hour-row { grid-template-columns: 100px minmax(0, 1fr); } .reservation-hour-status { grid-column: 2; } }
 .reservation-share-option { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text); }
 .reservation-share-option input { accent-color: var(--primary); width: 15px; height: 15px; }
 .reservation-share-option input:disabled + * { opacity: 0.5; }

@@ -5,12 +5,13 @@ from typing import Any
 from uuid import UUID
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
-from sqlalchemy import exists, func, or_, select, union
+from sqlalchemy import delete, exists, func, or_, select, union
 
 from sqlalchemy.orm import Session
 
 from app.schemas.rooms import RoomOut
 from app.core.exceptions import ApiError
+from app.models.chat_memo import Memo
 from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.reservation_attendee import ReservationAttendee
@@ -114,6 +115,30 @@ class ReservationService:
             result = ReservationCreateOut.model_validate(reservation)
             self.db.commit()
             return result
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def delete_reservation(self, reservation_id: UUID, user_id: UUID) -> None:
+        """생성자만 삭제하며 모든 개인 메모·참석자·예약을 함께 확정한다."""
+        try:
+            # 메모 저장도 같은 예약 행을 잠가 삭제 도중 메모가 추가되지 않게 한다.
+            reservation = self.db.scalar(
+                select(Reservation)
+                .where(Reservation.reservation_id == reservation_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if reservation is None:
+                raise ApiError(404, "RESERVATION_NOT_FOUND", "예약을 찾을 수 없습니다.")
+            if reservation.user_id != user_id:
+                raise ApiError(403, "RESERVATION_FORBIDDEN", "예약 생성자만 삭제할 수 있습니다.")
+
+            # memo FK에는 CASCADE가 없으므로 자식 행부터 명시적으로 삭제한다.
+            self.db.execute(delete(Memo).where(Memo.reservation_id == reservation_id))
+            self.db.execute(delete(ReservationAttendee).where(ReservationAttendee.reservation_id == reservation_id))
+            self.db.delete(reservation)
+            self.db.commit()
         except Exception:
             self.db.rollback()
             raise

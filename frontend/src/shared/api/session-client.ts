@@ -6,20 +6,24 @@ const NETWORK_MESSAGE = "서버에 연결할 수 없습니다. 잠시 후 다시
 let csrfToken = "";
 export function setCsrfToken(value: string) { csrfToken = value; }
 
-export async function request<T>(path: string, method = "GET", body?: unknown, activity = false): Promise<T> {
+export async function request<T>(path: string, method = "GET", body?: unknown, activity = false, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       credentials: "same-origin",
+      ...(signal ? { signal } : {}),
       headers: { "Content-Type": "application/json", ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}), ...(activity ? { "X-Session-Activity": "user" } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new ApiError(0, "NETWORK", NETWORK_MESSAGE);
   }
 
   const data = await res.json().catch(() => null);
+  // An abandoned account's response must not invalidate the current session.
+  signal?.throwIfAborted();
   if (res.ok) return data as T;
 
   const detail = data?.detail;

@@ -1,16 +1,22 @@
 import type { CalendarReservation } from "../reservations.types";
 import { addDays, dateOf, dayKey, isWeekend, overlaps, seoulDay, seoulTime } from "../reservation-time";
 
+import ReservationActions, { type ReservationActionProps } from "./ReservationActions";
+
 const WEEKDAYS = ["월", "화", "수", "목", "금", "토", "일"];
 
-function summary(item: CalendarReservation, day: string) {
+function summary(item: CalendarReservation, day: string, actions: ReservationActionProps) {
   const time = seoulDay(item.start_at) < day ? "이전날부터" : seoulTime(item.start_at);
   return <li key={item.reservation_id} className={`calendar-month-event ${item.is_mine ? "mine" : "other"}`} title={`${item.title} · ${item.room_name} · 참석 ${item.participant_count}명${item.is_attending ? " · 참석 중" : ""}`}>
-    <time>{time}</time><span>{item.title}</span>{item.is_attending && <span className="calendar-sr-only">참석 중</span>}
+    <strong>{item.title}</strong>
+    <time>{time}–{seoulDay(item.end_at) !== day ? `${seoulDay(item.end_at).slice(5)} ` : ""}{seoulTime(item.end_at)}</time>
+    <span>{item.room_name} · 참석 {item.participant_count}명</span>
+    <span>{item.is_mine ? "내 예약" : "다른 구성원의 예약"}{item.is_attending ? " · 참석 중" : ""}</span>
+    <ReservationActions item={item} {...actions} />
   </li>;
 }
 
-export default function MonthCalendar({ month, reservations, onDaySelect }: { month: string; reservations: CalendarReservation[]; onDaySelect: (day: string) => void }) {
+export default function MonthCalendar({ month, reservations, onDaySelect, ...actions }: { month: string; reservations: CalendarReservation[]; onDaySelect: (day: string) => void } & ReservationActionProps) {
   const nextMonth = dateOf(month);
   nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
   const count = (Date.parse(dayKey(nextMonth)) - Date.parse(month)) / 86400000;
@@ -28,9 +34,9 @@ export default function MonthCalendar({ month, reservations, onDaySelect }: { mo
       const extra = items.length - 3;
       return <section key={day} className={`calendar-month-day${weekend ? " weekend" : ""}${day === today ? " today" : ""}`} aria-label={`${day} 예약 ${items.length}건`}>
         <button type="button" disabled={weekend} className="calendar-month-date" aria-label={`${day} 주간 보기`} onClick={() => onDaySelect(day)}>{Number(day.slice(8))}</button>
-        <ul className="calendar-month-events">{items.slice(0, 3).map(item => summary(item, day))}</ul>
+        <ul className="calendar-month-events">{items.slice(0, 3).map(item => summary(item, day, actions))}</ul>
         {extra > 0 && (weekend
-          ? <details className="calendar-weekend-more"><summary>+{extra}건</summary><ul className="calendar-month-events">{items.slice(3).map(item => summary(item, day))}</ul></details>
+          ? <details className="calendar-weekend-more"><summary>+{extra}건</summary><ul className="calendar-month-events">{items.slice(3).map(item => summary(item, day, actions))}</ul></details>
           : <button type="button" className="calendar-month-more" aria-label={`${day} 나머지 ${extra}건 주간 보기`} onClick={() => onDaySelect(day)}>+{extra}건</button>)}
       </section>;
     })}

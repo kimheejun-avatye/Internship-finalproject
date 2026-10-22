@@ -1,0 +1,21 @@
+.meeting-note-page { min-width: 0; color: #202124; font-family: "Noto Sans KR", sans-serif; }
+.meeting-note-back { display: inline-block; margin-bottom: 14px; color: #5367cb; font-size: 13px; }
+.meeting-note-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px 24px; align-items: center; padding: 0 14px; margin-bottom: 18px; }
+.meeting-note-title { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; min-width: 0; }
+.meeting-note-title h1 { margin: 0; font-size: 28px; line-height: 40px; font-weight: 700; overflow-wrap: anywhere; }
+.meeting-note-linked { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 4px 10px; border-radius: 8px; background: #eaf0ff; color: #5367cb; font-size: 12px; line-height: 18px; font-weight: 700; }
+.meeting-note-linked img { width: 14px; height: 14px; }
+.meeting-note-saved { margin: 0; color: #70757a; text-align: right; font-size: 12px; line-height: 22px; }
+.meeting-note-info { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; color: #70757a; font-size: 14px; line-height: 22px; }
+.meeting-note-info span { display: inline-flex; align-items: center; gap: 9px; }
+.meeting-note-info span + span { border-left: 1px solid #dadce0; padding-left: 20px; }
+.meeting-note-info img { width: 16px; height: 16px; flex: none; }
+.meeting-note-save { justify-self: end; min-width: 92px; min-height: 40px; padding: 10px 16px; border: 0; border-radius: 8px; background: #5367cb; color: white; font: inherit; font-size: 13px; font-weight: 700; }
+.meeting-note-save:disabled { opacity: .65; cursor: wait; }
+.meeting-note-description { margin: 0 14px 12px; font-size: 12px; color: #70757a; }
+.meeting-note-editor { display: block; width: 100%; min-height: max(440px, calc(100dvh - 310px)); padding: 10px 18px 18px; resize: vertical; border: 1px solid #7886d6; border-radius: 8px; outline-offset: 2px; color: #202124; font: inherit; font-size: 14px; line-height: 25px; background: repeating-linear-gradient(to bottom, white 0, white 24px, #e5e7eb 24px, #e5e7eb 25px); background-position: 0 10px; background-attachment: local; }
+.meeting-note-notice { margin: 0 14px 12px; color: #354bb5; font-size: 13px; }
+.meeting-note-page button:focus-visible, .meeting-note-page a:focus-visible, .meeting-note-editor:focus-visible { outline: 2px solid #5367cb; outline-offset: 3px; }
+@media (max-width: 1100px) { .meeting-note-header { gap: 12px; padding: 0; } .meeting-note-title h1 { font-size: 24px; } .meeting-note-saved { max-width: 175px; } .meeting-note-info { gap: 8px 12px; } .meeting-note-info span + span { padding-left: 12px; } }
+
+.main:has(> .meeting-note-page) { padding: 18px 18px 24px; }

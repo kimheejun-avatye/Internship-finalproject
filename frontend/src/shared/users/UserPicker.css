@@ -1,0 +1,39 @@
+.user-picker { min-width: 0; min-height: 0; }
+.user-picker--panel { display: flex; flex-direction: column; height: 100%; }
+.user-picker-search-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.user-picker-search { display: flex; align-items: center; flex: 1; min-width: 0; gap: 9px; height: 42px; padding: 0 12px; border-radius: 6px; background: #eceef2; }
+.user-picker-search input { width: 100%; min-width: 0; border: 0; padding: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; color: #202124; }
+.user-picker-search input::placeholder { color: #70757a; }
+.user-picker-search:focus-within { outline: 2px solid #5367cb; outline-offset: 2px; }
+.user-picker-search input:focus-visible { outline: none; }
+.user-picker-refresh { flex: none; border: 0; background: transparent; color: #5367cb; padding: 6px; font-size: 22px; cursor: pointer; }
+.user-picker button:disabled, .user-picker input:disabled { opacity: .5; cursor: not-allowed; }
+.user-picker-summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; line-height: 20px; }
+.user-picker-summary > span { color: #59616d; font-size: 12px; }
+.user-picker-selected { display: flex; flex-wrap: wrap; gap: 8px; max-height: 72px; overflow-y: auto; margin: 8px 0 0; padding: 2px; list-style: none; }
+.user-picker-selected button { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 10px; border: 0; border-radius: 16px; background: #eaf0ff; color: #5367cb; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; cursor: pointer; }
+.user-picker-selected button span { font-size: 16px; line-height: 16px; }
+.user-picker-results > p, .user-picker-results > [role="alert"] { padding: 24px 12px; text-align: center; color: #70757a; font-size: 13px; line-height: 1.8; }
+.user-picker-results > [role="alert"] { color: #b3261e; }
+.user-picker-results ul { margin: 0; padding: 0; list-style: none; }
+.user-picker-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 10px 12px; }
+label.user-picker-row { cursor: pointer; }
+.user-picker-row:hover, .user-picker-row:focus-within { background: #f8f9fc; }
+.user-picker-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.user-picker-identity strong { font-size: 15px; font-weight: 600; line-height: 23px; }
+.user-picker-identity > span { font-size: 13px; line-height: 20px; color: #59616d; }
+.user-picker-identity small { font-size: 12px; line-height: 18px; color: #59616d; }
+.user-picker-row input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: #5367cb; }
+.user-picker-choice { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
+.user-picker-choice[aria-pressed="true"] { background: #eaf0ff; }
+.user-picker-choice-icon { width: 19px; height: 19px; background: #5367cb; mask: url("../../assets/chat-message-hint.svg") center / contain no-repeat; }
+.user-picker--panel .user-picker-row { min-height: 86px; padding: 13px 15px; }
+.user-picker--panel .user-picker-results li + li { border-top: 1px solid #eceef2; }
+.user-picker--panel .user-picker-results--multiple > ul { border: 1px solid #eceef2; border-radius: 12px; overflow: hidden; }
+.user-picker--panel .user-picker-row input { appearance: none; border: 1.5px solid #dadce0; border-radius: 50%; background: white; }
+.user-picker--panel .user-picker-row input:checked { border-color: #5367cb; background: #5367cb url("../../assets/chat-check.svg") center / 12px 12px no-repeat; }
+.user-picker--compact .user-picker-results { max-height: 250px; overflow-y: auto; }
+@media (max-height: 660px) { .user-picker--panel .user-picker-selected { max-height: 36px; } }
+.user-picker--compact .user-picker-search-row { flex: 1; }
+.user-picker--compact .user-picker-search { height: 34px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; }
+.user-picker--compact .user-picker-search input { height: auto; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 12px; }

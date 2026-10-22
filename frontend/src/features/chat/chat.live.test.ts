@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { setCsrfToken } from "../../shared/api/session-client";
+import { startRealtime } from "../../shared/realtime/realtime";
 import { createLiveChat } from "./chat.live";
 import { CLOSE_UNAUTHORIZED, PING_INTERVAL_MS } from "./chat.realtime";
 import type { ChatData, MessageDto, RoomDetailDto } from "./chat.types";
@@ -18,6 +19,8 @@ const message = (id: string, at: string, extra: Partial<MessageDto> = {}): Messa
 
 // 서버 대신 이벤트를 직접 흘려보낼 수 있는 WebSocket
 class FakeSocket {
+  static readonly OPEN = 1;
+  readyState = 0;
   static all: FakeSocket[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
@@ -27,7 +30,7 @@ class FakeSocket {
   constructor(public url: string) { FakeSocket.all.push(this); }
   send(data: string) { this.sent.push(data); }
   close() { this.closed = true; }
-  ready() { this.onopen?.(); this.emit({ type: "ready" }); }
+  ready() { this.readyState = FakeSocket.OPEN; this.onopen?.(); this.emit({ type: "ready" }); }
   emit(event: unknown) { this.onmessage?.({ data: JSON.stringify(event) }); }
   drop(code: number) { this.onclose?.({ code }); }
 }
@@ -53,6 +56,7 @@ const calls = (part: string) => fetch.mock.calls.filter(([path]) => String(path)
 const body = (call: unknown[]) => JSON.parse(String((call[1] as RequestInit).body));
 
 let data: ChatData;
+let stopRealtime: (() => void) | undefined;
 beforeEach(() => {
   FakeSocket.all = [];
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -60,6 +64,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   data?.disconnect?.();
+  stopRealtime?.(); stopRealtime = undefined;
   vi.useRealTimers();
   vi.unstubAllGlobals();
   setCsrfToken("");
@@ -67,8 +72,10 @@ afterEach(() => {
 
 async function openConnected() {
   data = createLiveChat(me);
+  stopRealtime = startRealtime(() => window.dispatchEvent(new CustomEvent("auth:lost")));
   data.connect!();
   await vi.waitFor(() => expect(data.getSnapshot().rooms).toHaveLength(1));
+  await vi.waitFor(() => expect(FakeSocket.all).toHaveLength(1));
   FakeSocket.all[0].ready();
   data.openRoom("room-1", "rooms");
   await vi.waitFor(() => expect(data.getSnapshot().messages["room-1"]).toBeDefined());

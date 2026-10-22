@@ -105,6 +105,7 @@ def user_data(user):
         "user_id": str(user.user_id),
         "email": user.email,
         "name": user.name,
+        "position": user.position,
         "team": user.team.value,
         "role": user.role.value,
     }

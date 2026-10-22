@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import messageHintIcon from "../../assets/chat-message-hint.svg";
+import { useSelectableUsers } from "../../shared/hooks/useSelectableUsers";
 import ChatPanelHeader from "./components/ChatPanelHeader";
 import CreateChatRoomView from "./views/CreateChatRoomView";
 import FriendListView from "./views/FriendListView";
@@ -14,6 +15,7 @@ import "./chat.css";
 export default function ChatPanel({ team = "AVATYE", me, data: providedData }: { team?: Team; me?: ChatUser; data?: ChatData }) {
   const data = providedData ?? (me ? getLiveChatData(me) : getChatData(team));
   const state = useChatState(data);
+  const directory = useSelectableUsers({ enabled: false });
   const panelId = useId();
   const root = useRef<HTMLDivElement>(null);
   const wasCreate = useRef(false);
@@ -36,15 +38,15 @@ export default function ChatPanel({ team = "AVATYE", me, data: providedData }: {
   const unreadSupported = data.mode === "mock";
   const roomCount = unreadSupported ? state.rooms.filter(r => r.presentation?.unreadCount).length : state.rooms.length;
   return <div ref={root} className="chat-panel">
-    {screen.kind === "create" ? <CreateChatRoomView users={state.users} onBack={() => data.cancelCreate()} onCreate={async (ids, title) => {
+    {screen.kind === "create" ? <CreateChatRoomView onBack={() => data.cancelCreate()} onCreate={async (ids, title) => {
       const id = await data.createRoom(ids, title);
       const origin = state.beforeCreate.kind === "conversation" ? state.beforeCreate.origin : state.beforeCreate.kind;
       data.openRoom(id, origin);
     }} /> : <>
-      <ChatPanelHeader activeTab={activeTab} friendCount={state.users.length} roomCount={roomCount} panelId={panelId} onCreate={() => { setError(""); data.navigate({ kind: "create" }); }} onTab={tab => { setError(""); data.navigate({ kind: tab }); }} />
+      <ChatPanelHeader activeTab={activeTab} friendCount={directory.users.length} roomCount={roomCount} panelId={panelId} onCreate={() => { setError(""); data.navigate({ kind: "create" }); }} onTab={tab => { setError(""); data.navigate({ kind: tab }); }} />
       {shownError && <p role="alert" className="chat-panel-error">{shownError}</p>}
       {(["friends", "rooms"] as const).map(tab => <div key={tab} role="tabpanel" id={panelId + "-" + tab + "-panel"} aria-labelledby={panelId + "-" + tab + "-tab"} hidden={activeTab !== tab} className="chat-panel-content">
-        {tab === activeTab && (screen.kind === "friends" ? <FriendListView users={state.users} footer={footer} onChooseUser={async id => {
+        {tab === activeTab && (screen.kind === "friends" ? <FriendListView preview footer={footer} onChooseUser={async id => {
           try { setError(""); data.openRoom(await data.createRoom([id]), "friends"); } catch (e) { setError(e instanceof Error ? e.message : "대화를 열지 못했습니다."); }
         }} /> : screen.kind === "conversation" && room ? <ConversationView key={room.chat_room_id} room={room} state={state} data={data} onBack={() => data.navigate({ kind: screen.origin })} /> : <ChatRoomListView state={state} footer={footer} unreadSupported={unreadSupported} onOpen={id => data.openRoom(id, "rooms")} />)}
       </div>)}

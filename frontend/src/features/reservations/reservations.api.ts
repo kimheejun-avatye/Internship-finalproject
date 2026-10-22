@@ -29,10 +29,13 @@ export function getBusyUsers(startAt: string, endAt: string) {
   return request<BusyUsers>(`/api/reservations/busy-users?${params}`);
 }
 
-export function getCalendarReservations(query: CalendarQuery) {
+export function getCalendarReservations(query: CalendarQuery, signal?: AbortSignal) {
   const params = new URLSearchParams({ start_at: query.start_at, end_at: query.end_at, scope: query.scope });
   if (query.room_id) params.set("room_id", query.room_id);
-  return request<CalendarReservation[]>(`/api/calendar/reservations?${params}`);
+  return request<CalendarReservation[]>(`/api/calendar/reservations?${params}`, "GET", undefined, false, signal);
 }
 
 export const getCalendarRooms = () => request<CalendarRoom[]>("/api/calendar/rooms");
+
+export const deleteReservation = (reservationId: string) =>
+  request<void>(`/api/reservations/${encodeURIComponent(reservationId)}`, "DELETE", undefined, true);

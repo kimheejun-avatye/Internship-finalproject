@@ -23,7 +23,7 @@ export function validateName(v: string): string {
   return name.length >= 1 && name.length <= 50 ? "" : "이름은 1~50자로 입력해 주세요.";
 }
 
-// 부서 / 직무의 필수 입력은 화면 요구사항이다. 서버 계약의 길이 제한은 확인 후 반영한다.
+// 서버와 동일하게 필수 입력을 검증하며, 부서/직무의 형식이나 최대 길이는 제한하지 않는다.
 export function validatePosition(v: string): string {
   return v.trim() ? "" : "부서 / 직무를 입력해 주세요.";
 }

@@ -30,7 +30,10 @@ class MemoService:
 
     def save_my_memo(self, reservation_id, user_id, memo):
         try:
-            reservation = self.db.get(Reservation, reservation_id)
+            reservation = self.db.scalar(
+                select(Reservation).where(Reservation.reservation_id == reservation_id)
+                .with_for_update().execution_options(populate_existing=True)
+            )
             if reservation is None:
                 raise ApiError(404, "RESERVATION_NOT_FOUND", "예약을 찾을 수 없습니다.")
 

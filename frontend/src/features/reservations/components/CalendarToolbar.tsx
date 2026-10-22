@@ -59,8 +59,10 @@ export default function CalendarToolbar(props: Props) {
         <label className="calendar-select"><span className="calendar-sr-only">보기</span>
           <select value={props.view} onChange={event => props.onViewChange(event.target.value as "week" | "month")}><option value="week">주간 보기</option><option value="month">월간 보기</option></select><img src={downIcon} alt="" />
         </label>
+        <label className="calendar-select"><span className="calendar-sr-only">예약 범위</span>
+          <select value={props.scope} onChange={event => props.onScopeChange(event.target.value as "all" | "mine")}><option value="all">전체 보기</option><option value="mine">나만 보기</option></select><img src={downIcon} alt="" />
+        </label>
       </div>
     </div>
-    <div className="calendar-scope-row"><label>예약 범위 <select value={props.scope} onChange={event => props.onScopeChange(event.target.value as "all" | "mine")}><option value="all">전체 예약</option><option value="mine">내가 생성한 예약</option></select></label></div>
   </header>;
 }

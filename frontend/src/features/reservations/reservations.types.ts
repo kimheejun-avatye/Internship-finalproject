@@ -63,8 +63,8 @@ export interface CalendarReservation {
   start_at: string;
   end_at: string;
   participant_count: number;
-  is_mine: boolean;
-  is_attending: boolean;
+  is_mine: boolean; // 로그인 사용자가 예약 생성자인지: 생성자 표시와 삭제 권한에 사용한다.
+  is_attending: boolean; // 로그인 사용자가 예약 참석자인지: 나만 보기와 회의록 접근에 사용한다.
 }
 
 export interface CalendarQuery {

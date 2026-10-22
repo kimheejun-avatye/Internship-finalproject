@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import AttendeePicker from "./AttendeePicker";
+import { UserDirectoryProvider } from "../../../shared/users/UserDirectoryProvider";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -20,15 +21,15 @@ it("selects both affiliations by user ID and filters locally without losing sele
     return <><AttendeePicker selected={selected} onChange={setSelected} capacity={3} /><output aria-label="선택 ID">{selected.join(",")}</output></>;
   }
   const user = userEvent.setup();
-  render(<Form />);
+  render(<UserDirectoryProvider userId="me"><Form /></UserDirectoryProvider>);
   await user.click(screen.getByRole("button", { name: /참석자 선택/ }));
   const avatye = await screen.findByRole("checkbox", { name: /김아바티/ });
   const guru = screen.getByRole("checkbox", { name: /김그루/ });
   expect(avatye).toBeEnabled();
   expect(guru).toBeEnabled();
   await user.click(avatye);
-  const search = screen.getByRole("searchbox", { name: "참석자 이름·이메일·소속 검색" });
-  await user.type(search, "gUrU");
+  const search = screen.getByRole("searchbox", { name: "사용자 이름 검색" });
+  await user.type(search, "김그");
   expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   await user.click(screen.getByRole("checkbox", { name: /김그루/ }));
   expect(screen.getByLabelText("선택 ID")).toHaveTextContent("avatye-user,guru-user");
@@ -56,12 +57,12 @@ it("does not allow choosing people with another meeting but keeps already chosen
     return <AttendeePicker selected={selected} onChange={setSelected} capacity={5} busyIds={busy} />;
   }
   const user = userEvent.setup();
-  const { rerender } = render(<Form busy={new Set()} />);
+  const { rerender } = render(<UserDirectoryProvider userId="me"><Form busy={new Set()} /></UserDirectoryProvider>);
   await user.click(screen.getByRole("button", { name: /참석자.*선택/ }));
   expect(await screen.findByRole("checkbox", { name: /김바쁨/ })).toBeEnabled();
 
   // 선택한 시간에 김바쁨의 다른 회의가 생기면: 이미 고른 사람은 해제할 수 있고 경고가 보인다.
-  rerender(<Form busy={new Set(["busy-user"])} />);
+  rerender(<UserDirectoryProvider userId="me"><Form busy={new Set(["busy-user"])} /></UserDirectoryProvider>);
   expect(screen.getByRole("checkbox", { name: /김바쁨/ })).toBeEnabled();
   expect(screen.getByText(/일정이 겹치는 참석자가 있습니다/)).toBeInTheDocument();
   await user.click(screen.getByRole("checkbox", { name: /김바쁨/ }));

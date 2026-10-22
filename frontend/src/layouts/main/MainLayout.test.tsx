@@ -3,11 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import App from "../../app/App";
-import { AuthProvider } from "../../features/auth/AuthProvider";
+import { AuthenticatedProviders as AuthProvider } from "../../app/providers";
 import { setCsrfToken } from "../../shared/api/session-client";
 
 const session = {
-  user: { user_id: "u1", email: "member@example.com", name: "김회원", team: "AVATYE", role: "MEMBER" },
+  user: { user_id: "u1", email: "member@example.com", name: "김회원", position: "개발팀 / 프론트엔드 개발자", team: "AVATYE", role: "MEMBER" },
   csrf_token: "csrf",
   idle_expires_at: new Date(Date.now() + 1800000).toISOString(),
   absolute_expires_at: new Date(Date.now() + 28800000).toISOString(),
@@ -36,8 +36,9 @@ it("keeps account navigation and the chat layout beside the current page", async
 
   const header = (await screen.findByRole("link", { name: "캘린더 홈" })).closest("header")!;
   expect(within(header).getByText("김회원")).toBeInTheDocument();
+  expect(within(header).getByText("개발팀 / 프론트엔드 개발자")).toBeInTheDocument();
   expect(within(header).getByRole("link", { name: "계정" })).toHaveAttribute("href", "/profile");
-  expect(within(header).getByRole("button", { name: "알림 (준비 중)" })).toBeDisabled();
+  expect(within(header).getByRole("button", { name: /^알림, 안 읽은 알림/ })).toBeEnabled();
   expect(within(header).queryByRole("link", { name: "관리자" })).not.toBeInTheDocument();
   const chat = screen.getByRole("complementary", { name: "채팅 영역" });
   expect(within(chat).getByRole("heading", { name: "AVATYE 메신저" })).toBeInTheDocument();
