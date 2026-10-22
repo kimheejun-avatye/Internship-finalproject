@@ -1,11 +1,13 @@
 import logging
+from typing import Optional
+from uuid import UUID
 
 from fastapi import Depends, Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.core.exceptions import ApiError
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.services import sessions
 
 
@@ -75,3 +77,19 @@ def password_authenticated(request: Request, db=Depends(get_db)):
 
     ip_limit(db, client_ip(request), "password-change")
     yield from authenticated(request, db)
+
+
+def websocket_user_id(token: str) -> Optional[UUID]:
+    """WebSocket 연결과 ping 때 세션을 확인한다. run_in_threadpool 로 호출한다.
+
+    sessions.current 가 FOR UPDATE 로 잠그므로 새 DB 세션을 열고 확인 즉시 commit 하고 닫는다.
+    소켓이 로그인을 연장하면 안 되므로 sessions.touch 는 부르지 않는다.
+    로그인이 아니거나 만료·차단이면 None.
+    """
+    try:
+        with SessionLocal() as db:
+            user, _ = sessions.current(db, token)
+            db.commit()
+            return user.user_id
+    except ApiError:
+        return None
