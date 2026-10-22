@@ -5,7 +5,17 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Text, UniqueConstraint, func, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -96,6 +106,7 @@ def direct_key(user_a: uuid.UUID, user_b: uuid.UUID) -> str:
 
 class Memo(Base):
     __tablename__ = "memo"
+    __table_args__ = (UniqueConstraint("reservation_id", "user_id", name="uq_memo_reservation_user"),)
 
     memo_id: Mapped[uuid.UUID] = _uuid_pk()
     reservation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reservations.reservation_id"), nullable=False)

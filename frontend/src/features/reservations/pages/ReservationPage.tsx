@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as api from "../reservations.api";
 import type { ReservationList, Room, TimeSlot } from "../reservations.types";
-import { addDays, dateOf, isValidDay, isWeekend, seoulDay, seoulTime } from "../reservation-time";
+import { MAX_BOOKING_DAYS, MAX_RESERVATION_HOURS, MAX_TITLE_LENGTH, addDays, dateOf, isValidDay, isWeekend, seoulDay, seoulTime } from "../reservation-time";
 import { ApiError } from "../../../shared/api/client";
 import TimeSlotPicker, { HOUR_OPTIONS, isAvailableRange, slotTime } from "../components/TimeSlotPicker";
 import AttendeePicker from "../components/AttendeePicker";
@@ -60,8 +60,10 @@ export default function ReservationPage() {
   const chosen: Selection = selection?.key === selectionKey ? selection : { key: selectionKey, startHour: "", endHour: "", endDate: date, otherDate: false };
   const { startHour, endHour, endDate, otherDate } = chosen;
   const dateError = !isValidDay(date) ? "예약 날짜를 선택해 주세요." : date < today ? "오늘 이후 날짜를 선택해 주세요."
+    : date > addDays(today, MAX_BOOKING_DAYS) ? `예약은 오늘부터 ${MAX_BOOKING_DAYS}일 이내 날짜만 가능합니다.`
     : isWeekend(date) ? "예약 시작 날짜는 평일을 선택해 주세요." : "";
-  const endDateError = !isValidDay(endDate) || endDate < date ? "종료 날짜는 시작 날짜 이후로 선택해 주세요." : "";
+  const endDateError = !isValidDay(endDate) || endDate < date ? "종료 날짜는 시작 날짜 이후로 선택해 주세요."
+    : endDate > addDays(date, 1) ? `최대 ${MAX_RESERVATION_HOURS}시간까지 예약할 수 있어 종료 날짜는 시작 날짜의 다음 날까지 선택할 수 있습니다.` : "";
   const availabilityKey = `${selectionKey}|${room?.status}|${endDate}|${availabilityRetry}`;
   const currentAvailability = availability?.key === availabilityKey ? availability : null;
   const slots = currentAvailability?.status === "ready" ? currentAvailability.slots : [];
@@ -158,6 +160,7 @@ export default function ReservationPage() {
     if (submitting.current || !roomId || roomBlocked) return;
     setError("");
     if (!title.trim()) return setError("회의 제목을 입력해 주세요.");
+    if (title.trim().length > MAX_TITLE_LENGTH) return setError(`회의 제목은 ${MAX_TITLE_LENGTH}자 이하로 입력해 주세요.`);
     if (dateError || endDateError) return setError(dateError || endDateError);
     if (!startHour || !endHour) return setError("시작과 종료 시각을 선택해 주세요.");
     if (Date.parse(startAt) < Date.now()) {
@@ -187,11 +190,11 @@ export default function ReservationPage() {
     <form className="reservation-booking" onSubmit={book} noValidate>
       <div className="reservation-form-card">
         <label className="reservation-field reservation-title-field">회의 제목
-          <input required value={title} disabled={busy} onChange={event => setTitle(event.target.value)} placeholder="회의 제목을 입력하세요" />
+          <input required maxLength={MAX_TITLE_LENGTH} value={title} disabled={busy} onChange={event => setTitle(event.target.value)} placeholder="회의 제목을 입력하세요" />
         </label>
         <div className="reservation-input-row">
           <label className="reservation-field">예약 날짜
-            <input type="date" required min={today} value={isValidDay(date) ? date : ""} disabled={busy} onChange={event => selectDate(event.target.value)} />
+            <input type="date" required min={today} max={addDays(today, MAX_BOOKING_DAYS)} value={isValidDay(date) ? date : ""} disabled={busy} onChange={event => selectDate(event.target.value)} />
           </label>
           <TimeSlotPicker date={date} endDate={endDate} startHour={startHour} endHour={endHour} slots={slots} now={now}
             loading={availabilityLoading} disabled={busy || !room || roomBlocked || Boolean(dateError || endDateError || currentAvailability?.error)}
@@ -205,10 +208,10 @@ export default function ReservationPage() {
           <label className="reservation-cross-day"><input type="checkbox" checked={otherDate} disabled={busy || !isValidDay(date)}
             onChange={event => changeSelection({ otherDate: event.target.checked, endDate: event.target.checked ? addDays(date, 1) : date, endHour: "" })} />다른 날짜에 종료</label>
           {otherDate && <label className="reservation-field reservation-end-date">종료 날짜
-            <input type="date" required min={date} value={isValidDay(endDate) ? endDate : ""} disabled={busy}
+            <input type="date" required min={date} max={addDays(date, 1)} value={isValidDay(endDate) ? endDate : ""} disabled={busy}
               onChange={event => changeSelection({ endDate: event.target.value, endHour: "" })} />
           </label>}
-          <span className="reservation-field-hint">한국 시간 · 1시간 단위</span>
+          <span className="reservation-field-hint">한국 시간 · 1시간 단위 · 최대 {MAX_RESERVATION_HOURS}시간</span>
         </div>
         {(dateError || endDateError) && <p className="reservation-inline-error" role="alert">{dateError || endDateError}</p>}
         {availabilityLoading && <p className="reservation-field-hint" role="status">가능한 시간을 확인하고 있습니다.{currentAvailability && currentAvailability.total > 1 ? ` (${currentAvailability.loaded}/${currentAvailability.total}일)` : ""}</p>}

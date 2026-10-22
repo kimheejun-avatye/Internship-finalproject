@@ -1,11 +1,17 @@
 import uuid
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timedelta
 from typing import Literal, Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.users import Team
+
+KST = ZoneInfo("Asia/Seoul")
+# 예약 규칙: 프론트(features/reservations)의 같은 상수와 맞춰 둔다.
+MAX_TITLE_LENGTH = 32
+MAX_RESERVATION_HOURS = 4
 
 
 # 캘린더 예약 조회 요청: 일·주·월 조회에서 공통으로 사용하는 기간과 필터
@@ -94,12 +100,22 @@ class ReservationCreateIn(BaseModel):
         title = value.strip()
         if not title:
             raise ValueError("회의 제목을 입력해 주세요.")
+        if len(title) > MAX_TITLE_LENGTH:
+            raise ValueError(f"회의 제목은 {MAX_TITLE_LENGTH}자 이하로 입력해 주세요.")
         return title
 
     @model_validator(mode="after")
     def validate_period(self) -> "ReservationCreateIn":
         if self.end_at <= self.start_at:
             raise ValueError("종료 시각은 시작 시각보다 늦어야 합니다.")
+        # 슬롯은 한국 시간 기준 1시간 단위이므로 시작·종료 모두 정각이어야 한다.
+        start, end = self.start_at.astimezone(KST), self.end_at.astimezone(KST)
+        if any(t.minute or t.second or t.microsecond for t in (start, end)):
+            raise ValueError("예약은 1시간 단위(정각)로만 가능합니다.")
+        if self.end_at - self.start_at > timedelta(hours=MAX_RESERVATION_HOURS):
+            raise ValueError(f"회의실은 최대 {MAX_RESERVATION_HOURS}시간까지 예약할 수 있습니다.")
+        if start.weekday() >= 5:
+            raise ValueError("예약 시작 날짜는 평일이어야 합니다.")
         return self
 
 
