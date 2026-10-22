@@ -148,8 +148,9 @@ class ReservationService:
                 Reservation.end_at > query.start_at,
             )
         )
+        # 내가 참석한 회의일 경우 표시
         if query.scope == "mine":
-            statement = statement.where(Reservation.user_id == user_id)
+            statement = statement.where(is_attending)
         if query.room_id is not None:
             statement = statement.where(Reservation.room_id == query.room_id)
 

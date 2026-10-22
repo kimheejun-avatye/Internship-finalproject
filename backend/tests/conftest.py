@@ -58,13 +58,13 @@ def client():
 
 @pytest.fixture
 def seed():
-    def create(email="member@example.com", approved=True, blocked=False):
+    def create(email="member@example.com", approved=True, blocked=False, name="테스트", team=Team.AVATYE):
         with SessionLocal() as db:
             user = User(
                 email=email,
-                name="테스트",
+                name=name,
                 password_hash=hash_password(PASSWORD),
-                team=Team.AVATYE,
+                team=team,
                 approved_at=clock.now() if approved else None,
                 blocked_at=clock.now() if blocked else None,
             )
