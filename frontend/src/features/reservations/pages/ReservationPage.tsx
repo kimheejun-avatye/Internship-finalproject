@@ -22,6 +22,7 @@ function timeRange(start: string, end: string, today: string) {
   if (startDay === today && endDay === today) return `${seoulTime(start)}–${seoulTime(end)}`;
   return `${startDay} ${seoulTime(start)} – ${endDay} ${seoulTime(end)}`;
 }
+const NO_BUSY: ReadonlySet<string> = new Set();
 type Listing = { roomId: string; page: number; data: ReservationList | null; error: string };
 type Selection = { key: string; startHour: string; endHour: string; endDate: string; otherDate: boolean };
 type Availability = { key: string; status: "loading" | "ready" | "error"; slots: TimeSlot[]; error: string; loaded: number; total: number };
@@ -42,6 +43,7 @@ export default function ReservationPage() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [title, setTitle] = useState("");
   const [attendees, setAttendees] = useState<string[]>([]);
+  const [busyUsers, setBusyUsers] = useState<{ key: string; ids: ReadonlySet<string> } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,9 +73,22 @@ export default function ReservationPage() {
   const startAt = slotTime(date, startHour), endAt = slotTime(endDate, endHour);
   const validRange = Boolean(startHour && endHour) && !dateError && !endDateError
     && Date.parse(startAt) >= now && isAvailableRange(slots, startAt, endAt);
+  // 선택한 시간에 다른 회의가 있는 사람. 고른 참석자가 여기에 들어 있으면 예약 버튼을 막는다(서버도 최종 검사한다).
+  const busyKey = validRange ? `${startAt}|${endAt}` : "";
+  const busyIds = busyUsers?.key === busyKey ? busyUsers.ids : NO_BUSY;
+  const attendeeBusy = attendees.some(id => busyIds.has(id));
   const calendarParams = new URLSearchParams({ date: isValidDay(date) ? date : today, view: "week" });
   if (roomId) calendarParams.set("room_id", roomId);
 
+  useEffect(() => {
+    if (!busyKey) return;
+    let active = true;
+    // 실패해도 예약은 서버 검사로 막히므로 표시만 생략한다.
+    api.getBusyUsers(startAt, endAt)
+      .then(result => { if (active) setBusyUsers({ key: busyKey, ids: new Set(result.user_ids) }); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [busyKey, startAt, endAt]);
   useEffect(() => {
     mounted.current = true;
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -167,6 +182,7 @@ export default function ReservationPage() {
       setAvailabilityRetry(value => value + 1);
       return setError("시작 시각은 과거일 수 없습니다. 가능한 시간을 다시 선택해 주세요.");
     }
+    if (attendeeBusy) return;
     if (!validRange || currentAvailability?.status !== "ready") return setError("선택한 구간에 예약할 수 없는 시간이 있습니다. 가능한 연속 시간을 선택해 주세요.");
     submitting.current = true; setBusy(true);
     try {
@@ -202,7 +218,7 @@ export default function ReservationPage() {
               ? { startHour: hour, endHour: "00:00", endDate: addDays(date, 1), otherDate: true }
               : { startHour: hour, endHour: "" })}
             onEndChange={hour => changeSelection({ endHour: hour })} />
-          <AttendeePicker selected={attendees} onChange={setAttendees} capacity={room?.capacity} disabled={busy} />
+          <AttendeePicker selected={attendees} onChange={setAttendees} capacity={room?.capacity} disabled={busy} busyIds={busyIds} />
         </div>
         <div className="reservation-date-options">
           <label className="reservation-cross-day"><input type="checkbox" checked={otherDate} disabled={busy || !isValidDay(date)}
@@ -255,7 +271,7 @@ export default function ReservationPage() {
         </nav>}
       </section>}
       {error && <p role="alert" className="book-error">{error}</p>}
-      <button type="submit" className="btn reservation-submit" disabled={busy || !room || roomBlocked || roomsLoading || Boolean(roomsError) || availabilityLoading || !validRange}>{busy ? "예약 중..." : "예약하기"}</button>
+      <button type="submit" className="btn reservation-submit" disabled={busy || !room || roomBlocked || roomsLoading || Boolean(roomsError) || availabilityLoading || !validRange || attendeeBusy}>{busy ? "예약 중..." : "예약하기"}</button>
     </form>
   </div>;
 }

@@ -44,6 +44,8 @@ export interface CreatedReservation {
   created_at: string;
 }
 
+export interface BusyUsers { user_ids: string[] }
+
 export interface TimeSlot {
   start_at: string;
   end_at: string;
