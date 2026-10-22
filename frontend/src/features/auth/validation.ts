@@ -1,4 +1,4 @@
-// 서버(backend/app/schemas/auth.py)와 같은 규칙. 서버가 다시 검사하므로 화면은 빠른 안내용이다.
+// 기존 항목은 서버(backend/app/schemas/auth.py)와 같은 규칙으로 빠르게 안내한다.
 
 export const normalizeEmail = (v: string) => v.trim().toLowerCase();
 
@@ -21,6 +21,11 @@ export function validatePassword(v: string): string {
 export function validateName(v: string): string {
   const name = v.trim();
   return name.length >= 1 && name.length <= 50 ? "" : "이름은 1~50자로 입력해 주세요.";
+}
+
+// 부서 / 직무의 필수 입력은 화면 요구사항이다. 서버 계약의 길이 제한은 확인 후 반영한다.
+export function validatePosition(v: string): string {
+  return v.trim() ? "" : "부서 / 직무를 입력해 주세요.";
 }
 
 export const normalizePhone = (v: string) => v.replace(/[-\s]/g, "");

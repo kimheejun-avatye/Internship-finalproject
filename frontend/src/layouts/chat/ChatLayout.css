@@ -1,1 +1,18 @@
-/* TODO: 오른쪽 고정 채팅 영역의 스타일을 구현합니다. */
+.chat-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.chat-layout-header, .chat-layout-footer { flex: none; }
+.chat-layout-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior-y: contain;
+}

@@ -11,17 +11,17 @@ import PasswordChangeForm from "../../account/components/PasswordChangeForm";
 const session = { user: { user_id: "u1", email: "member@example.com", name: "회원", team: "AVATYE", role: "MEMBER" }, csrf_token: "csrf-value", idle_expires_at: new Date(Date.now()+1800000).toISOString(), absolute_expires_at: new Date(Date.now()+28800000).toISOString() };
 const json = (body: unknown, status=200) => new Response(JSON.stringify(body), { status });
 function setup(path="/login") {
-  render(<MemoryRouter initialEntries={[path]}><AuthProvider><Routes><Route path="/login" element={<LoginPage />} /><Route element={<ProtectedRoute />}><Route path="/reservations" element={<h1>보호된 예약하기</h1>} /><Route path="/profile" element={<><h1>보호된 프로필</h1><PasswordChangeForm /></>} /></Route></Routes></AuthProvider></MemoryRouter>);
+  render(<MemoryRouter initialEntries={[path]}><AuthProvider><Routes><Route path="/login" element={<LoginPage />} /><Route element={<ProtectedRoute />}><Route path="/calendar" element={<h1>보호된 캘린더</h1>} /><Route path="/profile" element={<><h1>보호된 프로필</h1><PasswordChangeForm /></>} /></Route></Routes></AuthProvider></MemoryRouter>);
   return userEvent.setup();
 }
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken(""); });
 
 describe("session login integration", () => {
-  it("normalizes login input and enters protected reservations", async () => {
+  it("normalizes login input and enters protected calendar", async () => {
     const fetch=vi.fn(async(path: string) => path.endsWith("/login") ? json(session) : json({detail:{code:"SESSION_REQUIRED"}},401));
     vi.stubGlobal("fetch",fetch); const user=setup();
     await user.type(screen.getByLabelText("아이디"),"MEMBER@EXAMPLE.COM"); await user.type(screen.getByLabelText("비밀번호"),"Example123!"); await user.click(screen.getByRole("button",{name:"로그인"}));
-    expect(await screen.findByText("보호된 예약하기")).toBeInTheDocument();
+    expect(await screen.findByText("보호된 캘린더")).toBeInTheDocument();
     const call=fetch.mock.calls.find(([path])=>path==="/api/auth/login");
     expect(call).toBeTruthy();
     const init=(fetch.mock.calls as unknown as [string,RequestInit][]).find(([path])=>path==="/api/auth/login")![1];

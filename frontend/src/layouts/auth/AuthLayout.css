@@ -1,8 +1,27 @@
-.auth-page { min-height: 100%; display: flex; justify-content: center; padding: 64px 24px; }
-.auth-box { width: 432px; max-width: 100%; }
-.auth-logo { display: block; margin: 0 auto; }
-.auth-logo.large { width: 321px; margin-top: 110px; }
-.auth-logo.small { width: 258px; }
+.auth-page {
+  min-height: 100%; display: flex; justify-content: center;
+  padding: var(--auth-top, 64px) 24px 64px; background: #fff;
+}
+.auth-page--login { --auth-top: 174px; --auth-logo-width: 321px; --auth-logo-gap: 0px; }
+.auth-page--signup, .auth-page--reset, .auth-page--change {
+  --auth-top: 64px; --auth-logo-width: 258px; --auth-logo-gap: 36px;
+}
+.auth-content { width: 432px; max-width: 100%; min-width: 0; }
+.auth-box { width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.auth-logo { display: block; width: var(--auth-logo-width); max-width: 100%; height: auto; margin: 0 auto var(--auth-logo-gap); }
+.auth-box h1 { font-size: 24px; margin-bottom: 24px; }
+.auth-page .hint, .auth-page .field-error { overflow-wrap: anywhere; }
+.auth-page .inline-btn { flex-shrink: 0; white-space: nowrap; }
+@media (max-width: 520px) {
+  .auth-page { padding: 32px 20px 48px; }
+  .auth-page--login { --auth-logo-width: 280px; }
+  .auth-page .field-row { grid-template-columns: 1fr; gap: 0; }
+  .auth-page .input-wrap input { padding: 0 12px; }
+  .auth-page .input-wrap .inline-btn { padding: 0 10px; }
+  .auth-page .auth-links .divider { margin: 0 24px; }
+  .auth-page .consent { flex-wrap: wrap; }
+}
+
 .auth-subtitle { text-align: center; font-size: 22px; margin: 28px 0 56px; }
 
 .field { margin-bottom: 20px; }
@@ -41,7 +60,6 @@
 .back-link { display: block; text-align: center; margin-top: 24px; color: var(--muted); font-size: 14px; }
 
 .auth-box.signup .field { margin-bottom: 14px; }
-.auth-box.signup .auth-logo { margin-bottom: 36px; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-error { margin-top: 6px; font-size: 12px; color: #d93025; }
@@ -50,8 +68,8 @@
 .input-wrap .inline-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .input-wrap input:disabled { color: var(--muted); }
 
-.done-box { text-align: center; padding-top: 80px; }
-.done-box h1 { font-size: 24px; margin: 40px 0 12px; }
+.done-box { text-align: center; }
+.done-box h1 { margin: 0 0 12px; }
 .done-box p { color: var(--muted); margin-bottom: 36px; }
 .link-btn { display: flex; align-items: center; justify-content: center; }
 

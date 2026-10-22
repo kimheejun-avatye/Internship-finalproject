@@ -1,5 +1,6 @@
 """채팅방·메시지 REST API."""
 
+from datetime import datetime
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -88,12 +89,12 @@ def test_direct_room_is_created_then_reused(client, people):
     assert other_side.json()["display_title"] == "나"
 
 
-@pytest.mark.parametrize("target", ["other_team", "blocked", "pending", "missing"])
-def test_direct_room_rejects_invalid_target(client, people, seed, target):
+@pytest.mark.parametrize("team", [Team.AVATYE, Team.GURU])
+@pytest.mark.parametrize("target", ["blocked", "pending", "missing"])
+def test_direct_room_rejects_invalid_target(client, people, seed, target, team):
     target_id = {
-        "other_team": lambda: people.guru,
-        "blocked": lambda: seed("blocked@example.com", blocked=True),
-        "pending": lambda: seed("pending@example.com", approved=False),
+        "blocked": lambda: seed("blocked@example.com", blocked=True, team=team),
+        "pending": lambda: seed("pending@example.com", approved=False, team=team),
         "missing": uuid4,
     }[target]()
     login(client)
@@ -101,6 +102,44 @@ def test_direct_room_rejects_invalid_target(client, people, seed, target):
     r = direct(client, target_id)
     assert r.status_code == 400
     assert error_code(r) == "CHAT_MEMBER_INVALID"
+
+
+@pytest.mark.parametrize("creator,target", [("me", "guru"), ("guru", "me")])
+@pytest.mark.parametrize("kind", ["direct", "group"])
+def test_members_can_chat_across_teams(client, people, creator, target, kind):
+    login(client, creator)
+    response = (direct(client, getattr(people, target)) if kind == "direct"
+                else group(client, [getattr(people, target), people.kim]))
+    assert response.status_code == 201
+    room_id = response.json()["chat_room_id"]
+    assert send(client, room_id, "함께 회의해요").status_code == 201
+
+    login(client, target)
+    assert room_id in [room["chat_room_id"] for room in rooms(client)["items"]]
+    assert messages(client, room_id)["items"][0]["message"] == "함께 회의해요"
+    assert send(client, room_id, "네, 좋아요").status_code == 201
+    if kind == "direct":
+        reused = direct(client, getattr(people, creator))
+        assert reused.status_code == 200
+        assert reused.json()["chat_room_id"] == room_id
+
+    login(client, creator)
+    assert {message["message"] for message in messages(client, room_id)["items"]} == {"함께 회의해요", "네, 좋아요"}
+    login(client, "park")
+    assert client.get(f"/api/chat/rooms/{room_id}").status_code == 404
+    assert send(client, room_id, "참여하지 않은 방").status_code == 404
+
+
+@pytest.mark.parametrize("state", ["blocked", "pending", "missing"])
+def test_mixed_group_still_rejects_invalid_members(client, people, seed, state):
+    target = uuid4() if state == "missing" else seed(
+        "invalid@example.com", team=Team.GURU,
+        approved=state != "pending", blocked=state == "blocked",
+    )
+    login(client)
+    response = group(client, [people.kim, target])
+    assert response.status_code == 400
+    assert error_code(response) == "CHAT_MEMBER_INVALID"
 
 
 def test_direct_room_with_myself_is_rejected(client, people):
@@ -182,7 +221,6 @@ def test_auto_title_shortens_long_member_list(client, people):
     (["kim"], 422, "CHAT_MEMBER_TOO_FEW"),
     (["me", "kim"], 422, "CHAT_MEMBER_TOO_FEW"),
     (["kim", "kim"], 422, "CHAT_MEMBER_TOO_FEW"),
-    (["kim", "guru"], 400, "CHAT_MEMBER_INVALID"),
 ])
 def test_group_room_member_rules(client, people, members, status, code):
     login(client)
@@ -264,7 +302,9 @@ def test_send_message(client, people):
     (summary,) = rooms(client)["items"]
     assert summary["last_message"]["message_id"] == sent["message_id"]
     assert summary["last_message"]["client_id"] is None
-    assert summary["last_activity_at"] == sent["created_at"]
+    assert datetime.fromisoformat(summary["last_activity_at"].replace("Z", "+00:00")) == datetime.fromisoformat(
+        sent["created_at"].replace("Z", "+00:00")
+    )
     assert messages(client, room_id)["items"][0]["client_id"] is None
 
 

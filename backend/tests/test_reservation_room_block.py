@@ -23,7 +23,7 @@ BLOCK_END = NOW + timedelta(hours=2)
 def setup():
     with SessionLocal() as db:
         admin = User(email="admin@example.com", name="관리자", password_hash="x", team=Team.AVATYE, role=Role.ADMIN)
-        member = User(email="member@example.com", name="멤버", password_hash="x", team=Team.AVATYE)
+        member = User(email="member@example.com", name="멤버", password_hash="x", team=Team.AVATYE, approved_at=NOW)
         room = Room(name="A회의실", capacity=6)
         db.add_all([admin, member, room])
         db.flush()

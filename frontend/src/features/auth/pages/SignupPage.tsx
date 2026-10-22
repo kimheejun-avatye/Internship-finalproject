@@ -1,7 +1,6 @@
 import { FormEvent, ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 
-import Logo from "../../../shared/ui/Logo";
 import { ApiError } from "../../../shared/api/client";
 import { checkEmail, sendCode, signup, verifyCode, type Team } from "../signup.api";
 import { useCountdown } from "../../../shared/hooks/useCountdown";
@@ -15,12 +14,13 @@ import {
   validateName,
   validatePassword,
   validatePhone,
+  validatePosition,
 } from "../validation";
 
-type FieldName = "name" | "birth_date" | "phone" | "email" | "code" | "password" | "password2" | "consent";
+type FieldName = "name" | "birth_date" | "phone" | "email" | "code" | "password" | "password2" | "position" | "consent";
 type Errors = Partial<Record<FieldName, string>>;
 
-const INITIAL = { name: "", birthDate: "", phone: "", email: "", code: "", password: "", password2: "", team: "AVATYE" as Team };
+const INITIAL = { name: "", birthDate: "", phone: "", email: "", code: "", password: "", password2: "", team: "AVATYE" as Team, position: "" };
 
 /** 서버 오류 메시지에 "N분 후 다시 시도" 안내를 붙인다 */
 function describe(e: unknown): string {
@@ -37,7 +37,7 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
     <div className="field">
       <label htmlFor={id}>{label}</label>
       {children}
-      {error ? <p className="field-error" role="alert">{error}</p> : hint}
+      {error ? <p id={`${id}-error`} className="field-error" role="alert">{error}</p> : hint}
     </div>
   );
 }
@@ -120,6 +120,7 @@ export default function SignupPage() {
       email: validateEmail(form.email) || undefined,
       password: validatePassword(form.password) || undefined,
       password2: form.password === form.password2 ? undefined : "비밀번호가 일치하지 않습니다.",
+      position: validatePosition(form.position) || undefined,
       code: verified ? undefined : "이메일 인증을 완료해 주세요.",
       consent: agreed ? undefined : "개인정보 수집·이용에 동의해 주세요.",
     };
@@ -136,6 +137,7 @@ export default function SignupPage() {
         birth_date: form.birthDate,
         phone: normalizePhone(form.phone),
         team: form.team,
+        position: form.position.trim(),
       });
       setDone(true);
     } catch (err) {
@@ -163,13 +165,10 @@ export default function SignupPage() {
 
   if (done) {
     return (
-      <div className="auth-page">
-        <div className="auth-box signup done-box">
-          <Logo className="auth-logo small" />
-          <h1>가입 요청이 완료되었습니다</h1>
-          <p>관리자가 승인하면 로그인할 수 있습니다.</p>
-          <Link to="/login" className="btn link-btn">로그인으로 돌아가기</Link>
-        </div>
+      <div className="auth-box signup done-box">
+        <h1>가입 요청이 완료되었습니다</h1>
+        <p>관리자가 승인하면 로그인할 수 있습니다.</p>
+        <Link to="/login" className="btn link-btn">로그인으로 돌아가기</Link>
       </div>
     );
   }
@@ -177,9 +176,8 @@ export default function SignupPage() {
   const sendLabel = busy === "send" ? "전송 중…" : cooldown.seconds > 0 ? `재전송 (${cooldown.seconds})` : codeSent ? "재전송" : "인증번호 요청";
 
   return (
-    <div className="auth-page">
+    <>
       <form className="auth-box signup" onSubmit={submit} noValidate>
-        <Logo className="auth-logo small" />
 
         <Field id="name" label="이름" error={errors.name}>
           <div className="input-wrap"><input id="name" placeholder="이름" value={form.name} onChange={(e) => change("name")(e.target.value)} /></div>
@@ -237,6 +235,12 @@ export default function SignupPage() {
           </div>
         </div>
 
+        <Field id="position" label="부서 / 직무 (필수)" error={errors.position}>
+          <div className="input-wrap">
+            <input id="position" required placeholder="예: 개발팀 / 프론트엔드 개발자" value={form.position} aria-invalid={Boolean(errors.position)} aria-describedby={errors.position ? "position-error" : undefined} onChange={(e) => change("position")(e.target.value)} />
+          </div>
+        </Field>
+
         <div className="consent">
           <label>
             <input type="checkbox" checked={agreed} onChange={(e) => { setAgreed(e.target.checked); clearError("consent"); }} />
@@ -253,6 +257,6 @@ export default function SignupPage() {
         <Link to="/login" className="back-link">로그인으로 돌아가기</Link>
       </form>
       {showPrivacy && <PrivacyDialog onClose={() => setShowPrivacy(false)} />}
-    </div>
+    </>
   );
 }

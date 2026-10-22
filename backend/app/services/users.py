@@ -30,16 +30,15 @@ def decode_cursor(cursor: str) -> tuple[str, UUID]:
         raise cursor_invalid()
 
 
-def search_teammates(db, user: User, q: str, cursor: Optional[str], limit: int) -> dict:
-    """로그인 사용자와 같은 팀의 동료를 이름순으로 찾는다.
+def search_members(db, user: User, q: str, cursor: Optional[str], limit: int) -> dict:
+    """전체 팀의 활성 멤버를 이름순으로 찾는다.
 
-    - 팀은 세션 사용자로 정한다. 나, 차단(blocked_at), 승인 대기(approved_at IS NULL)는 제외
-    - q 가 비면 같은 팀 전체(친구 목록)
+    - 나, 차단(blocked_at), 승인 대기(approved_at IS NULL)는 제외
+    - q 가 비면 팀 구분 없이 전체 멤버(친구 목록)
     - q 가 있으면 이름 ILIKE '%q%' 또는 이메일 ILIKE 'q%'
     - (name, user_id) 순 keyset 페이지네이션
     """
     query = select(User).where(
-        User.team == user.team,
         User.user_id != user.user_id,
         User.blocked_at.is_(None),
         User.approved_at.is_not(None),

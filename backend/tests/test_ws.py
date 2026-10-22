@@ -2,6 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -13,7 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 from app.api.routes import ws as ws_route
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import UserSession
+from app.models import Team, UserSession
 from app.services import realtime
 
 ORIGIN = "http://127.0.0.1:5174"
@@ -25,7 +26,7 @@ _receiver = ThreadPoolExecutor(max_workers=8)
 def people(seed):
     return SimpleNamespace(
         me=seed("me@example.com", name="나"),
-        kim=seed("kim@example.com", name="김민수"),
+        kim=seed("kim@example.com", name="김민수", team=Team.GURU),
         lee=seed("lee@example.com", name="이영희"),
     )
 
@@ -174,7 +175,9 @@ def test_message_created_reaches_only_members(client, people):
             assert updated["data"]["chat_room_id"] == room_id
             assert updated["data"]["display_title"] == expected_titles[id(ws)]
             assert updated["data"]["last_message"]["message_id"] == sent["message_id"]
-            assert updated["data"]["last_activity_at"] == sent["created_at"]
+            assert datetime.fromisoformat(updated["data"]["last_activity_at"].replace("Z", "+00:00")) == datetime.fromisoformat(
+                sent["created_at"].replace("Z", "+00:00")
+            )
 
         # 참여자가 아닌 lee 에게는 아무것도 가지 않는다
         assert_nothing_pending(lee_ws)

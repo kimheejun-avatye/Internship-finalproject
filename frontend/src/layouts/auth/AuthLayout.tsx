@@ -1,8 +1,19 @@
-import { Navigate, Outlet } from "react-router-dom";
-import { useAuth } from "../../features/auth/AuthProvider";
+import { Outlet, useLocation } from "react-router-dom";
+import Logo from "../../shared/ui/Logo";
+
+const variants: Record<string, string> = {
+  "/login": "login",
+  "/signup": "signup",
+  "/password/reset": "reset",
+  "/profile": "change",
+};
+
 export default function AuthLayout() {
-  const { session, loading } = useAuth();
-  if (loading) return <p role="status" className="status-page">로그인 상태를 확인하고 있습니다.</p>;
-  if (session) return <Navigate to="/reservations" replace />;
-  return <main className="auth-page"><Outlet /></main>;
+  const { pathname } = useLocation();
+  return <main className={`auth-page auth-page--${variants[pathname] ?? "login"}`}>
+    <div className="auth-content">
+      <Logo className="auth-logo" />
+      <Outlet />
+    </div>
+  </main>;
 }

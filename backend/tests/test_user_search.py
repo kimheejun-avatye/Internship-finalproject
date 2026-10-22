@@ -1,4 +1,4 @@
-"""같은 팀 동료 검색 GET /api/users/search."""
+"""전체 멤버 검색 GET /api/users/search."""
 
 import pytest
 from conftest import signin
@@ -21,7 +21,7 @@ def test_login_is_required(client):
     assert client.get("/api/users/search").status_code == 401
 
 
-def test_only_same_team_is_listed(client, seed):
+def test_all_teams_are_listed(client, seed):
     seed()
     seed("kim@example.com", name="김민수")
     seed("lee@example.com", name="이영희")
@@ -29,8 +29,8 @@ def test_only_same_team_is_listed(client, seed):
     signin(client)
 
     names = [u["name"] for u in search(client)]
-    assert names == ["김민수", "이영희"]
-    assert [u["name"] for u in search(client, q="김")] == ["김민수"]
+    assert names == ["김구루", "김민수", "이영희"]
+    assert [u["name"] for u in search(client, q="김")] == ["김구루", "김민수"]
 
 
 def test_me_blocked_and_pending_are_excluded(client, seed):
@@ -38,6 +38,8 @@ def test_me_blocked_and_pending_are_excluded(client, seed):
     seed("ok@example.com", name="정상")
     seed("blocked@example.com", name="차단", blocked=True)
     seed("pending@example.com", name="대기", approved=False)
+    seed("guru-blocked@example.com", name="구루차단", team=Team.GURU, blocked=True)
+    seed("guru-pending@example.com", name="구루대기", team=Team.GURU, approved=False)
     signin(client)
 
     assert [u["name"] for u in search(client)] == ["정상"]
@@ -91,13 +93,13 @@ def test_limit_bounds(client, seed):
     assert client.get("/api/users/search", params={"limit": 0}).status_code == 422
 
 
-def test_cursor_pages_through_all_teammates(client, seed):
+def test_cursor_pages_through_all_members(client, seed):
     """이름이 같은 사람이 있어도 페이지를 넘기며 빠짐·중복 없이 전원 나온다."""
     seed()
     expected = []
     for i in range(7):
         # 같은 이름 두 명씩: user_id 로 순서가 정해져야 한다
-        uid = seed(f"user{i}@example.com", name=f"동료{i // 2}")
+        uid = seed(f"user{i}@example.com", name=f"동료{i // 2}", team=Team.GURU if i % 2 else Team.AVATYE)
         expected.append(uid)
     signin(client)
 

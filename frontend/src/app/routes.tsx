@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import MainLayout from "../layouts/main/MainLayout";
 import AuthLayout from "../layouts/auth/AuthLayout";
+import LoggedOutRoute from "../features/auth/guards/LoggedOutRoute";
 import ProtectedRoute from "../features/auth/guards/ProtectedRoute";
 import AdminRoute from "../features/admin/guards/AdminRoute";
 import LoginPage from "../features/auth/pages/LoginPage";
@@ -13,21 +14,26 @@ import AdminPage from "../features/admin/pages/AdminPage";
 
 export default function AppRoutes() {
   return <Routes>
-    <Route path="/signup" element={<SignupPage />} />
-    <Route element={<AuthLayout />}>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/password/reset" element={<PasswordResetPage />} />
+    <Route element={<LoggedOutRoute />}>
+      <Route element={<AuthLayout />}>
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/password/reset" element={<PasswordResetPage />} />
+      </Route>
     </Route>
     <Route element={<ProtectedRoute />}>
+      <Route element={<AuthLayout />}>
+        <Route path="/profile" element={<PasswordChangePage />} />
+      </Route>
       <Route element={<MainLayout />}>
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/reservations" element={<ReservationPage />} />
         <Route element={<AdminRoute />}>
           <Route path="/admin" element={<AdminPage />} />
         </Route>
-        <Route path="/profile" element={<PasswordChangePage />} />
       </Route>
     </Route>
-    <Route path="*" element={<Navigate to="/reservations" replace />} />
+    <Route path="/" element={<Navigate to="/calendar" replace />} />
+    <Route path="*" element={<Navigate to="/calendar" replace />} />
   </Routes>;
 }

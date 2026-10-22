@@ -38,6 +38,7 @@ async function fillProfile(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("휴대폰번호"), "010-1234-5678");
   await user.type(screen.getByLabelText("비밀번호", { selector: "#password" }), "Passw0rd!x");
   await user.type(screen.getByLabelText("비밀번호 확인"), "Passw0rd!x");
+  await user.type(screen.getByLabelText("부서 / 직무 (필수)"), " 개발팀 / 프론트엔드 개발자 ");
   await user.click(screen.getByLabelText(/개인정보 수집·이용 동의/));
 }
 
@@ -77,6 +78,7 @@ describe("SignupPage", () => {
       birth_date: "1995-03-02",
       phone: "01012345678",
       team: "AVATYE",
+      position: "개발팀 / 프론트엔드 개발자",
     });
   });
 

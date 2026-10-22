@@ -101,13 +101,12 @@ def member_ids(db, chat_room_id: UUID) -> list[UUID]:
     )
 
 
-def valid_teammates(db, user: User, user_ids: list[UUID]) -> list[User]:
-    """user_ids 전원이 user 와 같은 팀의 승인·비차단 사용자인지 확인한다. 하나라도 아니면 member_invalid()."""
+def valid_members(db, user_ids: list[UUID]) -> list[User]:
+    """소속과 관계없이 승인·비차단 사용자만 채팅에 참여할 수 있다."""
     found = list(
         db.scalars(
             select(User).where(
                 User.user_id.in_(user_ids),
-                User.team == user.team,
                 User.blocked_at.is_(None),
                 User.approved_at.is_not(None),
             )
@@ -307,7 +306,7 @@ def open_direct(db, user: User, target_id: UUID) -> tuple[dict, bool]:
     me_id = user.user_id
     if target_id == me_id:
         raise self_not_allowed()
-    valid_teammates(db, user, [target_id])
+    valid_members(db, [target_id])
 
     key = direct_key(me_id, target_id)
     room = _direct_room(db, key)
@@ -341,7 +340,7 @@ def create_group(db, user: User, title: Optional[str], member_ids: list[UUID]) -
     others = list(dict.fromkeys(uid for uid in member_ids if uid != me_id))
     if len(others) < 2:
         raise too_few_members()
-    valid_teammates(db, user, others)
+    valid_members(db, others)
 
     now = clock.now()
     room = ChatRoom(type=ChatRoomType.GROUP, title=title, created_by=me_id, created_at=now)

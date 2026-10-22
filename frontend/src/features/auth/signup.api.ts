@@ -21,6 +21,8 @@ export interface SignupPayload {
   birth_date: string;
   phone: string;
   team: Team;
+  // 연결안: 현재 SignupIn에는 수신·저장 처리가 없어 백엔드 계약 확인이 필요하다.
+  position: string;
 }
 
 export const signup = (payload: SignupPayload) => post<{ user_id: string; status: "PENDING" }>(BASE, payload);
