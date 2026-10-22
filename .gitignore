@@ -25,3 +25,6 @@ coverage/
 # Local files
 .DS_Store
 *.log
+
+# Local documents
+/docs/collaboration/calendar-api.md
