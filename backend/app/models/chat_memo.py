@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -87,12 +87,17 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         CheckConstraint("char_length(message) BETWEEN 1 AND 2000", name="ck_messages_length"),
+        CheckConstraint("kind IN ('TEXT', 'RESERVATION')", name="ck_messages_kind"),
+        CheckConstraint("(kind = 'RESERVATION') = (payload IS NOT NULL)", name="ck_messages_payload"),
     )
 
     message_id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.user_id"), nullable=False)
     chat_room_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chat_room.chat_room_id"), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
+    # TEXT: 일반 메시지, RESERVATION: 서버가 보낸 예약 카드(payload 에 보낸 시점의 예약 정보)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="TEXT")
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB(none_as_null=True))
     created_at: Mapped[datetime] = _created_at()
 
 
