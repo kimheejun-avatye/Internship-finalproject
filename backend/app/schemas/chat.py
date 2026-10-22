@@ -11,23 +11,43 @@ class ChatUserOut(BaseModel):
     name: str
 
 
-class LastMessageOut(BaseModel):
+class MessageOut(BaseModel):
     message_id: uuid.UUID
-    sender_id: uuid.UUID
-    content: str
+    chat_room_id: uuid.UUID
+    # sender.user_id 와 같은 값
+    user_id: uuid.UUID
+    sender: ChatUserOut
+    message: str
+    created_at: AwareDatetime
+    # 전송 요청의 client_id 를 그대로 돌려준다. 과거 조회에서는 None
+    client_id: Optional[str] = None
+
+
+# 채팅방 목록 항목. 응답·room.updated 이벤트 모두 받는 사람 기준으로 만든다
+class RoomSummaryOut(BaseModel):
+    chat_room_id: uuid.UUID
+    type: ChatRoomType
+    # 그룹방에 지정한 제목. 1:1방과 자동 제목 그룹방은 None
+    title: Optional[str]
+    # title 이 있으면 title, 없으면 나를 뺀 참여자 이름으로 서버가 만든다
+    display_title: str
+    # 나를 포함한 현재 참여자 수
+    member_count: int
+    last_message: Optional[MessageOut]
+    # 마지막 메시지 시각. 메시지가 없으면 방 생성 시각
+    last_activity_at: AwareDatetime
     created_at: AwareDatetime
 
 
-# 채팅방 목록 항목. 1:1방 생성·그룹방 생성·방 상세 응답도 같은 형식
-class ChatRoomOut(BaseModel):
-    chat_room_id: uuid.UUID
-    type: ChatRoomType
-    # 1:1방은 상대방 이름
-    title: str
+class RoomDetailOut(RoomSummaryOut):
     # 나를 제외한 현재 참여자
     members: list[ChatUserOut]
-    last_message: Optional[LastMessageOut]
-    last_message_at: Optional[AwareDatetime]
+
+
+class RoomPageOut(BaseModel):
+    items: list[RoomSummaryOut]
+    # 다음 요청의 cursor 값. 더 없으면 None
+    next_cursor: Optional[str]
 
 
 class DirectRoomIn(BaseModel):
@@ -39,54 +59,39 @@ class DirectRoomIn(BaseModel):
 class GroupRoomIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str
+    # null·생략·빈 문자열이면 자동 제목
+    title: Optional[str] = None
+    # 나를 뺀 2명 이상. 나를 빼고 중복을 지우는 일은 세션 사용자를 아는 서비스에서 한다
     member_ids: list[uuid.UUID]
 
     @field_validator("title")
     @classmethod
-    def strip_title(cls, value: str) -> str:
+    def strip_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
         value = value.strip()
-        if not 1 <= len(value) <= 50:
-            raise ValueError("방 이름은 1~50자여야 합니다.")
-        return value
-
-    # 중복 제거 후 2명 이상. 나를 빼는 것은 세션 사용자를 아는 서비스에서 한다
-    @field_validator("member_ids")
-    @classmethod
-    def unique_members(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
-        value = list(dict.fromkeys(value))
-        if len(value) < 2:
-            raise ValueError("나를 제외한 참여자가 2명 이상이어야 합니다.")
-        return value
+        if len(value) > 50:
+            raise ValueError("방 이름은 50자 이하여야 합니다.")
+        return value or None
 
 
 class MessageIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content: str
+    message: str
     # 프런트 임시 id. 저장하지 않고 응답·이벤트에 그대로 돌려준다
     client_id: Optional[str] = Field(default=None, max_length=64)
 
-    @field_validator("content")
+    @field_validator("message")
     @classmethod
-    def strip_content(cls, value: str) -> str:
+    def strip_message(cls, value: str) -> str:
         value = value.strip()
         if not 1 <= len(value) <= 2000:
             raise ValueError("메시지는 1~2000자여야 합니다.")
         return value
 
 
-class MessageOut(BaseModel):
-    message_id: uuid.UUID
-    chat_room_id: uuid.UUID
-    sender: ChatUserOut
-    content: str
-    created_at: AwareDatetime
-    client_id: Optional[str] = None
-
-
 class MessagePageOut(BaseModel):
     items: list[MessageOut]
-    # 다음 요청의 before 값. 더 없으면 None
-    next_before: Optional[uuid.UUID]
-    has_more: bool
+    # 다음 요청의 cursor 값. 더 없으면 None
+    next_cursor: Optional[str]

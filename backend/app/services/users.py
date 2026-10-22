@@ -1,5 +1,3 @@
-import base64
-import json
 from typing import Optional
 from uuid import UUID
 
@@ -7,6 +5,7 @@ from sqlalchemy import or_, select, tuple_
 
 from app.core.exceptions import ApiError
 from app.models.users import User
+from app.services import cursors
 
 
 def cursor_invalid():
@@ -18,18 +17,16 @@ def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-# 커서는 마지막 사용자의 (name, user_id). 프런트는 내용을 몰라도 되도록 base64 로 감싼다
+# 커서는 마지막 사용자의 (name, user_id)
 def encode_cursor(user: User) -> str:
-    raw = json.dumps([user.name, str(user.user_id)], ensure_ascii=False).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return cursors.encode(user.name, user.user_id)
 
 
 def decode_cursor(cursor: str) -> tuple[str, UUID]:
     try:
-        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
-        name, user_id = json.loads(raw)
-        return str(name), UUID(user_id)
-    except (ValueError, TypeError):
+        name, user_id = cursors.decode(cursor, 2)
+        return name, UUID(user_id)
+    except ValueError:
         raise cursor_invalid()
 
 

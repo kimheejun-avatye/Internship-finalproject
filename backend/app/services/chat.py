@@ -1,12 +1,29 @@
+from collections import defaultdict
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import and_, func, or_, select, tuple_, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
+
 from app.core.exceptions import ApiError
-from app.models.chat_memo import ChatRoom
+from app.models.chat_memo import (
+    ChatRoom,
+    ChatRoomMember,
+    ChatRoomType,
+    Message,
+    direct_key,
+)
 from app.models.users import User
+from app.services import clock, cursors
+from app.services.users import escape_like
 
 # DB 는 developer 의 chat_memo 모델(chat_room, chat_room_member, messages)을 쓴다.
-# API 필드와 이름이 다르다: content ↔ messages.message, sender_id ↔ messages.user_id
+# 메시지 작성자는 messages.user_id, 본문은 messages.message 로 API 이름과 같다.
+
+# 자동 제목에 보여줄 이름 수. 공통 문서에서 형식이 확정되면 auto_title 과 함께 바꾼다
+AUTO_TITLE_NAMES = 2
 
 
 def room_not_found():
@@ -27,7 +44,25 @@ def too_few_members():
 
 
 def cursor_invalid():
-    return ApiError(400, "CHAT_CURSOR_INVALID", "잘못된 메시지 위치입니다.")
+    return ApiError(400, "CHAT_CURSOR_INVALID", "잘못된 목록 위치입니다.")
+
+
+# ---- 커서: 방 목록 (last_activity_at, chat_room_id), 메시지 (created_at, message_id) ----
+
+
+def encode_cursor(at: datetime, row_id: UUID) -> str:
+    return cursors.encode(at.isoformat(), row_id)
+
+
+def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    try:
+        at, row_id = cursors.decode(cursor, 2)
+        at = datetime.fromisoformat(at)
+        if at.tzinfo is None:
+            raise ValueError("naive datetime")
+        return at, UUID(row_id)
+    except ValueError:
+        raise cursor_invalid()
 
 
 # ---- 권한 ----
@@ -35,86 +70,300 @@ def cursor_invalid():
 
 def require_member(db, chat_room_id: UUID, user_id: UUID) -> ChatRoom:
     """방이 있고 삭제되지 않았으며 내가 현재 참여자일 때만 방을 돌려준다. 아니면 room_not_found()."""
-    # TODO: ChatRoom + ChatRoomMember join, deleted_at IS NULL, left_at IS NULL
-    raise NotImplementedError
+    room = db.scalar(
+        select(ChatRoom)
+        .join(ChatRoomMember, ChatRoomMember.chat_room_id == ChatRoom.chat_room_id)
+        .where(
+            ChatRoom.chat_room_id == chat_room_id,
+            ChatRoom.deleted_at.is_(None),
+            ChatRoomMember.user_id == user_id,
+            ChatRoomMember.left_at.is_(None),
+        )
+    )
+    if room is None:
+        raise room_not_found()
+    return room
 
 
 def member_ids(db, chat_room_id: UUID) -> list[UUID]:
     """이벤트 대상: DB 기준 현재 참여자(left_at IS NULL) 전원."""
-    # TODO
-    raise NotImplementedError
+    return list(
+        db.scalars(
+            select(ChatRoomMember.user_id).where(
+                ChatRoomMember.chat_room_id == chat_room_id,
+                ChatRoomMember.left_at.is_(None),
+            )
+        )
+    )
 
 
 def valid_teammates(db, user: User, user_ids: list[UUID]) -> list[User]:
     """user_ids 전원이 user 와 같은 팀의 승인·비차단 사용자인지 확인한다. 하나라도 아니면 member_invalid()."""
-    # TODO
-    raise NotImplementedError
+    found = list(
+        db.scalars(
+            select(User).where(
+                User.user_id.in_(user_ids),
+                User.team == user.team,
+                User.blocked_at.is_(None),
+                User.approved_at.is_not(None),
+            )
+        )
+    )
+    if len(found) != len(set(user_ids)):
+        raise member_invalid()
+    return found
+
+
+# ---- 응답 구성 ----
+
+
+def auto_title(names: list[str]) -> str:
+    """제목 없는 방의 표시 제목. 임시 형식: "김민수, 이영희 외 2명"."""
+    if not names:
+        return "대화 상대 없음"
+    shown = ", ".join(names[:AUTO_TITLE_NAMES])
+    rest = len(names) - AUTO_TITLE_NAMES
+    return f"{shown} 외 {rest}명" if rest > 0 else shown
+
+
+def message_out(message: Message, sender_name: str, client_id: Optional[str] = None) -> dict:
+    return {
+        "message_id": message.message_id,
+        "chat_room_id": message.chat_room_id,
+        "user_id": message.user_id,
+        "sender": {"user_id": message.user_id, "name": sender_name},
+        "message": message.message,
+        "created_at": message.created_at,
+        "client_id": client_id,
+    }
+
+
+def _room_parts(db, room_ids: list[UUID]):
+    """방 여러 개의 현재 참여자와 마지막 메시지를 쿼리 두 번으로 읽는다."""
+    members = defaultdict(list)
+    rows = db.execute(
+        select(ChatRoomMember.chat_room_id, User.user_id, User.name)
+        .join(User, User.user_id == ChatRoomMember.user_id)
+        .where(ChatRoomMember.chat_room_id.in_(room_ids), ChatRoomMember.left_at.is_(None))
+        .order_by(User.name, User.user_id)
+    )
+    for chat_room_id, user_id, name in rows:
+        members[chat_room_id].append({"user_id": user_id, "name": name})
+
+    # 방마다 가장 최근 메시지 한 건: DISTINCT ON (chat_room_id)
+    last = {}
+    rows = db.execute(
+        select(Message, User.name)
+        .join(User, User.user_id == Message.user_id)
+        .where(Message.chat_room_id.in_(room_ids))
+        .distinct(Message.chat_room_id)
+        .order_by(Message.chat_room_id, Message.created_at.desc(), Message.message_id.desc())
+    )
+    for message, name in rows:
+        last[message.chat_room_id] = message_out(message, name)
+    return members, last
+
+
+def _room_out(room: ChatRoom, me_id: UUID, members: list[dict], last: Optional[dict], detail: bool) -> dict:
+    others = [m for m in members if m["user_id"] != me_id]
+    out = {
+        "chat_room_id": room.chat_room_id,
+        "type": room.type,
+        "title": room.title,
+        "display_title": room.title or auto_title([m["name"] for m in others]),
+        "member_count": len(members),
+        "last_message": last,
+        "last_activity_at": room.last_message_at or room.created_at,
+        "created_at": room.created_at,
+    }
+    if detail:
+        out["members"] = others
+    return out
+
+
+def room_summaries(db, rooms: list[ChatRoom], me_id: UUID) -> list[dict]:
+    """RoomSummary 목록. 받는 사람(me_id)마다 display_title 과 members 가 다르다."""
+    if not rooms:
+        return []
+    members, last = _room_parts(db, [r.chat_room_id for r in rooms])
+    return [
+        _room_out(r, me_id, members[r.chat_room_id], last.get(r.chat_room_id), detail=False)
+        for r in rooms
+    ]
+
+
+def room_detail_out(db, room: ChatRoom, me_id: UUID) -> dict:
+    members, last = _room_parts(db, [room.chat_room_id])
+    return _room_out(room, me_id, members[room.chat_room_id], last.get(room.chat_room_id), detail=True)
 
 
 # ---- 채팅방 ----
 
 
-def list_rooms(db, user: User) -> list[dict]:
-    """내가 참여 중인 삭제되지 않은 방. last_message_at DESC NULLS LAST, created_at DESC.
-
-    N+1 없이: 방 목록 → 참여자 일괄 조회(IN) → 방별 최신 메시지(DISTINCT ON) 일괄 조회.
-    """
-    # TODO
-    raise NotImplementedError
+def list_rooms(db, user: User, q: str, cursor: Optional[str], limit: int) -> dict:
+    """내가 참여 중인 삭제되지 않은 방. last_activity_at, chat_room_id 내림차순 keyset 페이지네이션."""
+    activity = func.coalesce(ChatRoom.last_message_at, ChatRoom.created_at)
+    query = (
+        select(ChatRoom)
+        .join(ChatRoomMember, ChatRoomMember.chat_room_id == ChatRoom.chat_room_id)
+        .where(
+            ChatRoomMember.user_id == user.user_id,
+            ChatRoomMember.left_at.is_(None),
+            ChatRoom.deleted_at.is_(None),
+        )
+    )
+    if q:
+        pattern = f"%{escape_like(q)}%"
+        # 제목이 없으면 표시 제목이 참여자 이름이므로, 나를 뺀 참여자 이름으로 찾는다
+        other = aliased(ChatRoomMember)
+        other_named = (
+            select(other.user_id)
+            .join(User, User.user_id == other.user_id)
+            .where(
+                other.chat_room_id == ChatRoom.chat_room_id,
+                other.left_at.is_(None),
+                other.user_id != user.user_id,
+                User.name.ilike(pattern, escape="\\"),
+            )
+            .exists()
+        )
+        query = query.where(
+            or_(
+                ChatRoom.title.ilike(pattern, escape="\\"),
+                and_(ChatRoom.title.is_(None), other_named),
+            )
+        )
+    if cursor:
+        query = query.where(tuple_(activity, ChatRoom.chat_room_id) < tuple_(*decode_cursor(cursor)))
+    # 한 개 더 읽어 다음 페이지가 있는지 본다
+    rooms = list(
+        db.scalars(query.order_by(activity.desc(), ChatRoom.chat_room_id.desc()).limit(limit + 1))
+    )
+    page = rooms[:limit]
+    next_cursor = None
+    if len(rooms) > limit:
+        last = page[-1]
+        next_cursor = encode_cursor(last.last_message_at or last.created_at, last.chat_room_id)
+    return {"items": room_summaries(db, page, user.user_id), "next_cursor": next_cursor}
 
 
 def room_detail(db, chat_room_id: UUID, user: User) -> dict:
     """방 상세 + 참여자. require_member 를 거친다."""
-    # TODO
-    raise NotImplementedError
+    room = require_member(db, chat_room_id, user.user_id)
+    return room_detail_out(db, room, user.user_id)
 
 
-def open_direct(db, user: User, other_id: UUID) -> tuple[dict, bool]:
-    """1:1방을 열고 (ChatRoomOut, 새로 만들었는지)를 돌려준다.
-
-    - 상대가 나 → self_not_allowed()
-    - 상대가 다른 팀·차단·승인 대기·없음 → member_invalid()
-    - direct_key 로 기존 방이 있으면 그대로, 없으면 방 + 참여자 2명 생성 후 commit
-    - 동시 생성으로 IntegrityError → rollback 후 다시 조회해 기존 방 반환
-    """
-    # TODO
-    raise NotImplementedError
+def _direct_room(db, key: str) -> Optional[ChatRoom]:
+    return db.scalar(
+        select(ChatRoom).where(
+            ChatRoom.type == ChatRoomType.DIRECT,
+            ChatRoom.direct_key == key,
+            ChatRoom.deleted_at.is_(None),
+        )
+    )
 
 
-def create_group(db, user: User, title: str, member_ids: list[UUID]) -> dict:
-    """그룹방을 만들고 ChatRoomOut 을 돌려준다.
+def open_direct(db, user: User, target_id: UUID) -> tuple[dict, bool]:
+    """1:1방을 열고 (RoomDetail, 새로 만들었는지)를 돌려준다."""
+    me_id = user.user_id
+    if target_id == me_id:
+        raise self_not_allowed()
+    valid_teammates(db, user, [target_id])
 
-    - member_ids 에서 나를 빼고 2명 미만이면 too_few_members()
-    - 전원 valid_teammates, 만든 사람 자동 참여
-    - commit 후 참여자 전원에게 room.created 이벤트 (각자 시점의 ChatRoomOut)
-    """
-    # TODO
-    raise NotImplementedError
+    key = direct_key(me_id, target_id)
+    room = _direct_room(db, key)
+    if room is not None:
+        return room_detail_out(db, room, me_id), False
+
+    now = clock.now()
+    try:
+        room = ChatRoom(type=ChatRoomType.DIRECT, direct_key=key, created_by=me_id, created_at=now)
+        db.add(room)
+        db.flush()
+        db.add_all(
+            ChatRoomMember(chat_room_id=room.chat_room_id, user_id=uid, joined_at=now)
+            for uid in (me_id, target_id)
+        )
+        db.commit()
+    except IntegrityError:
+        # 상대가 같은 순간 같은 방을 만들었다(chat_room_direct_key_uniq): 그 방을 돌려준다
+        db.rollback()
+        room = _direct_room(db, key)
+        if room is None:
+            raise
+        return room_detail_out(db, room, me_id), False
+    # TODO(4단계): 참여자에게 room.updated
+    return room_detail_out(db, room, me_id), True
+
+
+def create_group(db, user: User, title: Optional[str], member_ids: list[UUID]) -> dict:
+    """그룹방을 만들고 RoomDetail 을 돌려준다. 만든 사람은 자동 참여하고 title 이 없으면 자동 제목."""
+    me_id = user.user_id
+    others = list(dict.fromkeys(uid for uid in member_ids if uid != me_id))
+    if len(others) < 2:
+        raise too_few_members()
+    valid_teammates(db, user, others)
+
+    now = clock.now()
+    room = ChatRoom(type=ChatRoomType.GROUP, title=title, created_by=me_id, created_at=now)
+    db.add(room)
+    db.flush()
+    db.add_all(
+        ChatRoomMember(chat_room_id=room.chat_room_id, user_id=uid, joined_at=now)
+        for uid in (me_id, *others)
+    )
+    db.commit()
+    # TODO(4단계): 참여자에게 room.updated
+    return room_detail_out(db, room, me_id)
 
 
 # ---- 메시지 ----
 
 
 def list_messages(
-    db, chat_room_id: UUID, user: User, before: Optional[UUID], limit: int
+    db, chat_room_id: UUID, user: User, cursor: Optional[str], limit: int
 ) -> dict:
-    """최신순 keyset 페이지네이션. MessagePageOut 형식을 돌려준다.
-
-    - before 가 있으면 그 메시지의 (created_at, message_id) 보다 작은 것만.
-      before 가 이 방의 메시지가 아니면 cursor_invalid()
-    - limit + 1 개를 읽어 has_more 를 판단한다
-    """
-    # TODO
-    raise NotImplementedError
+    """created_at, message_id 최신순 keyset 페이지네이션. cursor 가 있으면 그보다 오래된 메시지만."""
+    require_member(db, chat_room_id, user.user_id)
+    query = (
+        select(Message, User.name)
+        .join(User, User.user_id == Message.user_id)
+        .where(Message.chat_room_id == chat_room_id)
+    )
+    if cursor:
+        query = query.where(
+            tuple_(Message.created_at, Message.message_id) < tuple_(*decode_cursor(cursor))
+        )
+    # 한 건 더 읽어 다음 페이지가 있는지 본다
+    rows = db.execute(
+        query.order_by(Message.created_at.desc(), Message.message_id.desc()).limit(limit + 1)
+    ).all()
+    page = rows[:limit]
+    next_cursor = None
+    if len(rows) > limit:
+        last = page[-1][0]
+        next_cursor = encode_cursor(last.created_at, last.message_id)
+    return {"items": [message_out(m, name) for m, name in page], "next_cursor": next_cursor}
 
 
 def send_message(
-    db, chat_room_id: UUID, user: User, content: str, client_id: Optional[str]
+    db, chat_room_id: UUID, user: User, message: str, client_id: Optional[str]
 ) -> dict:
-    """메시지를 저장하고 MessageOut(+client_id)을 돌려준다.
+    """메시지를 저장하고 Message(+client_id)를 돌려준다.
 
     한 트랜잭션: INSERT messages + chat_room.last_message_at UPDATE → commit
-    → commit 이 끝난 뒤 publish_to_users(member_ids, message.created). commit 전에 push 하지 않는다.
+    → commit 이 끝난 뒤 이벤트를 보낸다. commit 전에 push 하지 않는다.
     """
-    # TODO
-    raise NotImplementedError
+    require_member(db, chat_room_id, user.user_id)
+    now = clock.now()
+    saved = Message(chat_room_id=chat_room_id, user_id=user.user_id, message=message, created_at=now)
+    db.add(saved)
+    # 동시에 보낸 메시지가 먼저 commit 해도 시각이 뒤로 가지 않게 한다. GREATEST 는 NULL 을 무시한다
+    db.execute(
+        update(ChatRoom)
+        .where(ChatRoom.chat_room_id == chat_room_id)
+        .values(last_message_at=func.greatest(ChatRoom.last_message_at, now))
+    )
+    db.commit()
+    # TODO(4단계): member_ids 에게 message.created, 각자 기준 room.updated
+    return message_out(saved, user.name, client_id)
