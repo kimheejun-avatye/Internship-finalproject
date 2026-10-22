@@ -32,3 +32,8 @@
 .book-form input.title-input { width: 240px; }
 .book-form .btn { height: 40px; padding: 0 24px; }
 .book-error { width: 100%; font-size: 13px; color: #d93025; }
+
+.book-success { width: 100%; font-size: 13px; color: var(--green); }
+.reservation-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.reservation-pagination button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: white; }
+.reservation-pagination button:disabled { opacity: 0.5; cursor: not-allowed; }

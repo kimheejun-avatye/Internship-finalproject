@@ -17,6 +17,7 @@ class RoomStatus(str, Enum):
     ACTIVE = "ACTIVE"
     BLOCK = "BLOCK"
 
+# Reservation.py에 있는 것처럼 rooms 테이블에도 제약을 걸어야 할지.
 
 class Room(Base):
     __tablename__ = "rooms"

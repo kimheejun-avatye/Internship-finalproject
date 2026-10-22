@@ -1,23 +1,35 @@
-"""예약·캘린더 컨트롤러. 클래스 선언은 HTTP 경로를 등록하지 않는다."""
+"""예약 컨트롤러와 로그인 인증이 필요한 예약 HTTP API."""
 
-from typing import Any
+from datetime import date as date_type
+from typing import Annotated
+from uuid import UUID
 
+from fastapi import APIRouter, Depends, Query, Response
+from sqlalchemy.orm import Session
+
+from app.api.dependencies import authenticated
+from app.core.exceptions import ApiError
+from app.db.session import get_db
+from app.models.rooms import Room
 from app.models.users import User
 from app.schemas.reservations import (
+    AvailabilityQuery,
     CalendarQuery,
     CalendarReservationResponse,
     ReservationCreateIn,
     ReservationCreateOut,
-    ReservationListQuery,
     ReservationListOut,
+    ReservationListQuery,
+    TimeSlotOut,
 )
 from app.schemas.rooms import RoomOut
 from app.services.reservations import ReservationService
+from app.services.rooms import list_rooms
 
 
 # 예약·캘린더의 요청과 인증 사용자 정보를 받아 서비스에 전달하는 컨트롤러
 class ReservationController:
-    """인증된 User를 외부에서 받는다. 인증과 FastAPI DI 연결은 아직 없다."""
+    """HTTP 계층에서 확인한 User와 요청 DTO를 서비스에 전달한다."""
 
     # 생성자: 예약 조회 업무를 위임할 서비스 객체를 외부에서 주입받는다.
     def __init__(self, service: ReservationService) -> None:
@@ -31,6 +43,13 @@ class ReservationController:
             user_id=current_user.user_id,
             data=data,
         )
+
+    # 가능 시간 조회: 인증된 사용자에게 날짜·회의실별 슬롯을 제공한다.
+    def get_room_availability(
+        self, query: AvailabilityQuery, current_user: User
+    ) -> list[TimeSlotOut]:
+        """GET /rooms/{room_id}/availability. 계산은 서비스에 위임한다."""
+        return self.service.get_room_availability(query)
 
     # 캘린더 예약 조회: 조회 기간·필터와 인증 사용자 ID를 서비스에 전달한다.
     def get_calendar_reservations(
@@ -65,7 +84,7 @@ class ReservationController:
         기존 RoomOut(room_id, name, status, capacity)을 재사용한다.
         인증 필요성을 명시하기 위해 current_user를 받으며, HTTP 연결은 하지 않는다.
         """
-        raise NotImplementedError
+        return self.service.get_calendar_rooms()
 
     # 예약 화면의 회의실별 금일 예약 조회
     def get_my_today_reservations(
@@ -82,3 +101,82 @@ class ReservationController:
             room_id=query.room_id,
             page=query.page,
         )
+
+
+router = APIRouter(prefix="/api", tags=["reservations"])
+
+
+@router.get("/rooms", response_model=list[RoomOut])
+def get_reservation_rooms(
+    identity=Depends(authenticated, scope="function"),
+    db: Session = Depends(get_db),
+):
+    return list_rooms(db)
+
+
+@router.get("/rooms/{room_id}/reservations", response_model=ReservationListOut)
+def get_room_reservations(
+    room_id: UUID,
+    page: int = Query(default=1, ge=1),
+    identity=Depends(authenticated, scope="function"),
+    db: Session = Depends(get_db),
+):
+    if db.get(Room, room_id) is None:
+        raise ApiError(404, "ROOM_NOT_FOUND", "회의실을 찾을 수 없습니다.")
+    controller = ReservationController(ReservationService(db))
+    return controller.get_my_today_reservations(
+        query=ReservationListQuery(room_id=room_id, page=page),
+        current_user=identity[0],
+    )
+
+
+@router.post("/reservations", response_model=ReservationCreateOut, status_code=201)
+def create_reservation(
+    body: ReservationCreateIn,
+    identity=Depends(authenticated, scope="function"),
+    db: Session = Depends(get_db),
+):
+    controller = ReservationController(ReservationService(db))
+    return controller.create_reservation(data=body, current_user=identity[0])
+
+
+# 기존 동기 세션으로 컨트롤러와 서비스를 구성한다. 세션 수명은 get_db가 관리한다.
+def get_reservation_controller(db: Session = Depends(get_db)) -> ReservationController:
+    return ReservationController(ReservationService(db))
+
+
+# 세션 인증을 거쳐 캘린더 조회 요청을 컨트롤러에 전달한다.
+@router.get("/calendar/reservations", response_model=list[CalendarReservationResponse], tags=["calendar"])
+def get_calendar_reservations(
+    query: Annotated[CalendarQuery, Query()],
+    response: Response,
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return controller.get_calendar_reservations(query, identity[0])
+
+
+# 인증된 사용자에게 캘린더 필터용 회의실 목록을 제공한다.
+@router.get("/calendar/rooms", response_model=list[RoomOut], tags=["calendar"])
+def get_calendar_rooms(
+    response: Response,
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return controller.get_calendar_rooms(identity[0])
+
+
+# TODO: 가능 시간 조회. 날짜 형식 오류는 FastAPI가 422로 처리한다.
+@router.get("/rooms/{room_id}/availability", response_model=list[TimeSlotOut])
+def get_room_availability(
+    room_id: UUID,
+    date: date_type,
+    slot_minutes: int = Query(default=60, ge=60, le=60),
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    query = AvailabilityQuery(room_id=room_id, date=date, slot_minutes=slot_minutes)
+    return controller.get_room_availability(query, identity[0])
+

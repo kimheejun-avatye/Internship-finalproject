@@ -1,4 +1,4 @@
-"""Security middleware scoped to login and password endpoints only."""
+"""Security middleware for session-protected authentication and reservation APIs."""
 
 import logging
 
@@ -20,7 +20,12 @@ SESSION_PATHS = {
 
 
 def owns_path(path):
-    return path in SESSION_PATHS or path.startswith("/api/auth/password/")
+    return (
+        path in SESSION_PATHS
+        or path.startswith("/api/auth/password/")
+        or path in {"/api/rooms", "/api/reservations"}
+        or path.startswith("/api/rooms/")
+    )
 
 
 def unavailable():
