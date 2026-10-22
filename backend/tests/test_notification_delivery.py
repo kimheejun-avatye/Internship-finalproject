@@ -49,9 +49,10 @@ def test_booking_sends_online_and_preserves_offline_notifications(client, bookin
     host_session = login(client, "member")
     online_session = login(client, "online")
     outsider_session = login(client, "outsider")
-    with connect(client, online_session) as online_ws, connect(client, outsider_session) as outsider_ws:
+    with connect(client, online_session) as online_ws, connect(client, outsider_session) as outsider_ws, connect(client, host_session) as host_ws:
         ready(online_ws)
         ready(outsider_ws)
+        ready(host_ws)
         response = client.post("/api/reservations", json=request, headers=auth(host_session))
         assert response.status_code == 201
         rid = response.json()["reservation_id"]
@@ -61,6 +62,7 @@ def test_booking_sends_online_and_preserves_offline_notifications(client, bookin
         assert event["data"]["title"] == "알림 연결 회의"
         assert event["data"] == store.list_for_user(online)[0].model_dump(mode="json")
         assert_nothing_pending(outsider_ws)
+        assert_nothing_pending(host_ws)
         # 같은 예약을 다시 처리해도 실시간 중복 알림을 보내지 않는다.
         notifications.notify_reservation_created(UUID(rid))
         assert_nothing_pending(online_ws)
@@ -68,7 +70,8 @@ def test_booking_sends_online_and_preserves_offline_notifications(client, bookin
     response = client.get("/api/notifications")
     assert response.status_code == 200
     assert response.json()["items"][0]["reservation_id"] == rid
-    assert all(len(store.list_for_user(uid)) == 1 for uid in (host, online, offline))
+    assert all(len(store.list_for_user(uid)) == 1 for uid in (online, offline))
+    assert store.list_for_user(host) == []
 
 
 def test_rejected_booking_creates_no_notifications(client, booking):

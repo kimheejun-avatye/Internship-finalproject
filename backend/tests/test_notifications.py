@@ -52,8 +52,8 @@ def test_notification_is_saved_for_each_attendee_without_a_websocket(notificatio
     rid, host, invited, unrelated = notification_data
     with SessionLocal() as db:
         result = NotificationService(db, store).create_for_reservation(rid)
-    assert set(result) == {host, invited}
-    for uid in (host, invited):
+    assert set(result) == {invited}
+    for uid in (invited,):
         saved = json.loads(client.lindex(prefix + str(uid), 0))
         assert saved["reservation_id"] == str(rid)
         assert saved["type"] == "reservation.created"
@@ -63,7 +63,9 @@ def test_notification_is_saved_for_each_attendee_without_a_websocket(notificatio
         assert datetime.fromisoformat(saved["end_at"]) == datetime(2026, 10, 23, 2, tzinfo=timezone.utc)
         assert all(text in saved["message"] for text in ("기획 회의", "회의실 A", "10:00", "11:00"))
         assert "비공개 메모" not in json.dumps(saved, ensure_ascii=False)
-    assert result[host].notification_id != result[invited].notification_id
+    assert client.exists(prefix + str(host)) == 0
+    with SessionLocal() as db:
+        assert db.get(ReservationAttendee, (rid, host)) is not None
     assert client.exists(prefix + str(unrelated)) == 0
 
 
@@ -75,14 +77,14 @@ def test_repeated_generation_keeps_original_notification(notification_store, not
     with SessionLocal() as db:
         service = NotificationService(db, store)
         first = service.create_for_reservation(rid)
-        original = client.lindex(prefix + str(host), 0)
+        original = client.lindex(prefix + str(invited), 0)
         time.advance(minutes=5)
         second = service.create_for_reservation(rid)
-    assert set(first) == {host, invited}
+    assert set(first) == {invited}
     assert second == {}
-    for uid in (host, invited):
-        assert client.llen(prefix + str(uid)) == 1
-    assert client.lindex(prefix + str(host), 0) == original
+    assert client.llen(prefix + str(invited)) == 1
+    assert client.exists(prefix + str(host)) == 0
+    assert client.lindex(prefix + str(invited), 0) == original
 
 
 def test_retention_keeps_latest_notifications(notification_store):
@@ -188,12 +190,13 @@ def test_notification_list_is_private_and_survives_relogin(notification_api, not
     for _ in range(2):
         response = client.get("/api/notifications", params={"user_id": str(invited)})
         assert response.status_code == 200
-        assert [item["notification_id"] for item in response.json()["items"]] == [str(saved[host].notification_id)]
+        assert response.json()["items"] == []
     assert client.post("/api/auth/logout", json={}).status_code == 204
     assert signin(client, email="invited@example.com").status_code == 200
     response = client.get("/api/notifications")
     assert [item["notification_id"] for item in response.json()["items"]] == [str(saved[invited].notification_id)]
-    assert all(redis.llen(prefix + str(uid)) == 1 for uid in (host, invited))
+    assert redis.llen(prefix + str(invited)) == 1
+    assert redis.exists(prefix + str(host)) == 0
 
 
 def test_notification_list_sorts_by_timestamp_then_id(notification_api, seed):
