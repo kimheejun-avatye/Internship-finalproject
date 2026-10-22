@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional
@@ -16,8 +17,11 @@ from app.models.chat_memo import (
     direct_key,
 )
 from app.models.users import User
-from app.services import clock, cursors
+from app.schemas.chat import MessageOut, RoomSummaryOut
+from app.services import clock, cursors, realtime
 from app.services.users import escape_like
+
+logger = logging.getLogger(__name__)
 
 # DB 는 developer 의 chat_memo 모델(chat_room, chat_room_member, messages)을 쓴다.
 # 메시지 작성자는 messages.user_id, 본문은 messages.message 로 API 이름과 같다.
@@ -197,6 +201,41 @@ def room_detail_out(db, room: ChatRoom, me_id: UUID) -> dict:
     return _room_out(room, me_id, members[room.chat_room_id], last.get(room.chat_room_id), detail=True)
 
 
+# ---- 실시간 이벤트: 모두 commit 이 끝난 뒤 부른다 ----
+
+
+def _publish_room_updated(db, room: ChatRoom, user_ids: list[UUID]) -> None:
+    """room.updated 는 받는 사람마다 display_title 이 달라 사람별로 만든다."""
+    targets = realtime.manager.online(user_ids)
+    if not targets:
+        return
+    members, last = _room_parts(db, [room.chat_room_id])
+    for uid in targets:
+        summary = _room_out(room, uid, members[room.chat_room_id], last.get(room.chat_room_id), detail=False)
+        data = RoomSummaryOut.model_validate(summary).model_dump(mode="json")
+        realtime.publish_to_users([uid], realtime.event("room.updated", data))
+
+
+def _publish_message(db, room: ChatRoom, message: dict) -> None:
+    """방 현재 참여자 전원(보낸 사람의 다른 탭 포함)에게 message.created, 이어서 각자 기준 room.updated."""
+    targets = realtime.manager.online(member_ids(db, room.chat_room_id))
+    if not targets:
+        return
+    data = MessageOut.model_validate(message).model_dump(mode="json")
+    realtime.publish_to_users(targets, realtime.event("message.created", data))
+    # last_message_at 은 SQL UPDATE 로 바꿨으므로 다시 읽어 최신 요약을 만든다
+    db.refresh(room)
+    _publish_room_updated(db, room, targets)
+
+
+def _safely(publish, *args) -> None:
+    # 저장은 이미 끝났다. 이벤트를 만들다 실패해도 요청은 성공으로 돌려준다
+    try:
+        publish(*args)
+    except Exception:
+        logger.warning("Chat event publish failed", exc_info=True)
+
+
 # ---- 채팅방 ----
 
 
@@ -292,7 +331,7 @@ def open_direct(db, user: User, target_id: UUID) -> tuple[dict, bool]:
         if room is None:
             raise
         return room_detail_out(db, room, me_id), False
-    # TODO(4단계): 참여자에게 room.updated
+    _safely(_publish_room_updated, db, room, [me_id, target_id])
     return room_detail_out(db, room, me_id), True
 
 
@@ -313,7 +352,7 @@ def create_group(db, user: User, title: Optional[str], member_ids: list[UUID]) -
         for uid in (me_id, *others)
     )
     db.commit()
-    # TODO(4단계): 참여자에게 room.updated
+    _safely(_publish_room_updated, db, room, [me_id, *others])
     return room_detail_out(db, room, me_id)
 
 
@@ -354,7 +393,7 @@ def send_message(
     한 트랜잭션: INSERT messages + chat_room.last_message_at UPDATE → commit
     → commit 이 끝난 뒤 이벤트를 보낸다. commit 전에 push 하지 않는다.
     """
-    require_member(db, chat_room_id, user.user_id)
+    room = require_member(db, chat_room_id, user.user_id)
     now = clock.now()
     saved = Message(chat_room_id=chat_room_id, user_id=user.user_id, message=message, created_at=now)
     db.add(saved)
@@ -365,5 +404,6 @@ def send_message(
         .values(last_message_at=func.greatest(ChatRoom.last_message_at, now))
     )
     db.commit()
-    # TODO(4단계): member_ids 에게 message.created, 각자 기준 room.updated
-    return message_out(saved, user.name, client_id)
+    out = message_out(saved, user.name, client_id)
+    _safely(_publish_message, db, room, out)
+    return out
