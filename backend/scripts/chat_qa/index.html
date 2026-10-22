@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>채팅 QA</title>
+<style>
+  :root { --line: #d9dce1; --muted: #6b7280; --accent: #2563eb; --bg: #f6f7f9; --mine: #dbeafe; --err: #b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: var(--bg); color: #111827; }
+  header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #e5e7eb; }
+  .badge.on { background: #dcfce7; color: #166534; }
+  .badge.off { background: #fee2e2; color: #991b1b; }
+  #error { color: var(--err); font-weight: 600; }
+  main { display: grid; grid-template-columns: 280px 300px 1fr; gap: 12px; padding: 12px 16px; height: calc(100vh - 230px); min-height: 420px; }
+  section { background: #fff; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; }
+  section h2 { font-size: 13px; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .scroll { overflow-y: auto; flex: 1; min-height: 0; }
+  .row { padding: 8px 10px; border-bottom: 1px solid #f0f1f3; }
+  .room { cursor: pointer; }
+  .room:hover, .room.active { background: #eff6ff; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .tools { display: flex; gap: 6px; padding: 8px 10px; flex-wrap: wrap; align-items: center; }
+  input[type=text], input[type=email], input[type=password] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; min-width: 0; }
+  button { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { max-width: 75%; margin: 6px 10px; padding: 6px 10px; border-radius: 10px; background: #f3f4f6; word-break: break-word; white-space: pre-wrap; }
+  .msg.mine { margin-left: auto; background: var(--mine); }
+  .msg.pending { opacity: .55; }
+  #log { margin: 0 16px 12px; height: 140px; overflow-y: auto; background: #111827; color: #d1d5db; border-radius: 8px; padding: 8px 10px; font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>채팅 QA</h1>
+  <form id="login-form" class="tools" style="padding:0">
+    <input id="email" type="email" list="qa-accounts" placeholder="이메일" value="qa-chat1@example.com" required>
+    <datalist id="qa-accounts">
+      <option value="qa-chat1@example.com">김민수</option>
+      <option value="qa-chat2@example.com">이영희</option>
+      <option value="qa-chat3@example.com">박지성</option>
+      <option value="qa-chat4@example.com">최지우</option>
+      <option value="qa-chat-guru@example.com">구루팀원 (다른 팀)</option>
+      <option value="qa-member1@example.com">QA멤버일</option>
+    </datalist>
+    <input id="password" type="password" value="Qa12345!" required>
+    <button class="primary">로그인</button>
+  </form>
+  <span id="me" class="hidden"></span>
+  <button id="logout" class="hidden">로그아웃</button>
+  <span>WS <span id="ws-status" class="badge off">미연결</span></span>
+  <button id="ws-toggle" disabled>끊기</button>
+  <span id="error"></span>
+</header>
+
+<main>
+  <section>
+    <h2>동료 (같은 팀) · 1:1 / 그룹 만들기</h2>
+    <div class="tools">
+      <input id="user-q" type="text" placeholder="이름·이메일 검색" style="flex:1">
+      <button id="user-search">검색</button>
+    </div>
+    <div id="users" class="scroll"></div>
+    <div class="tools">
+      <button id="users-more" class="hidden">더 보기</button>
+    </div>
+    <div class="tools" style="border-top:1px solid var(--line)">
+      <input id="group-title" type="text" placeholder="그룹 제목 (비우면 자동)" style="flex:1">
+      <button id="group-create">체크한 사람과 그룹</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>내 채팅방</h2>
+    <div class="tools">
+      <input id="room-q" type="text" placeholder="방 제목 검색" style="flex:1">
+      <button id="room-search">검색</button>
+    </div>
+    <div id="rooms" class="scroll"></div>
+    <div class="tools"><button id="rooms-more" class="hidden">더 보기</button></div>
+  </section>
+
+  <section>
+    <h2 id="room-title">대화방을 선택하세요</h2>
+    <div class="muted" id="room-members" style="padding:4px 10px"></div>
+    <div class="tools"><button id="messages-more" class="hidden">이전 메시지 더 보기</button></div>
+    <div id="messages" class="scroll"></div>
+    <form id="composer" class="tools" style="border-top:1px solid var(--line)">
+      <input id="message" type="text" placeholder="메시지 (Enter 전송)" style="flex:1" disabled>
+      <button class="primary" id="send" disabled>보내기</button>
+    </form>
+  </section>
+</main>
+
+<div id="log"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const PING_MS = 25000;
+
+let me = null;
+let csrf = null;
+let socket = null;
+let pingTimer = null;
+let currentRoomId = null;
+let roomsCursor = null;
+let usersCursor = null;
+let messagesCursor = null;
+const rooms = new Map();      // chat_room_id → RoomSummary
+const messages = new Map();   // message_id 또는 client_id → Message (현재 방)
+const picked = new Set();     // 그룹에 넣을 user_id
+
+// DOM 은 textContent 로만 채운다 (메시지 내용을 HTML 로 해석하지 않는다)
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "class") node.className = value;
+    else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+    else node[key] = value;
+  }
+  for (const child of children) node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  return node;
+}
+
+function log(direction, payload) {
+  const line = `${new Date().toLocaleTimeString("ko-KR")} ${direction} ${typeof payload === "string" ? payload : JSON.stringify(payload)}\n`;
+  $("log").append(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function showError(error) {
+  $("error").textContent = error ? String(error.message || error) : "";
+  if (error) log("⚠", String(error.message || error));
+}
+
+function time(iso) {
+  return new Date(iso).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+async function api(method, path, body) {
+  const headers = { "x-session-activity": "user" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (method !== "GET" && csrf) headers["X-CSRF-Token"] = csrf;
+  const response = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const detail = data && data.detail;
+    const reason = detail && detail.code ? `${detail.code}: ${detail.message}` : JSON.stringify(detail);
+    throw new Error(`${method} ${path} → ${response.status} ${reason}`);
+  }
+  return { status: response.status, data };
+}
+
+// ---- 로그인 ----
+
+async function afterLogin(session) {
+  me = session.user;
+  csrf = session.csrf_token;
+  $("login-form").classList.add("hidden");
+  $("me").textContent = `${me.name} (${me.email}, ${me.team})`;
+  $("me").classList.remove("hidden");
+  $("logout").classList.remove("hidden");
+  connect();
+  await Promise.all([loadUsers(true), loadRooms(true)]);
+}
+
+$("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  showError(null);
+  try {
+    const { data } = await api("POST", "/api/auth/login", { email: $("email").value, password: $("password").value });
+    await afterLogin(data);
+  } catch (error) { showError(error); }
+});
+
+$("logout").addEventListener("click", async () => {
+  try { await api("POST", "/api/auth/logout", {}); } catch (error) { showError(error); }
+  location.reload();
+});
+
+// ---- WebSocket ----
+
+function setStatus(text, on) {
+  $("ws-status").textContent = text;
+  $("ws-status").className = `badge ${on ? "on" : "off"}`;
+}
+
+function connect() {
+  socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/ws`);
+  setStatus("연결 중", false);
+  $("ws-toggle").disabled = false;
+  $("ws-toggle").textContent = "끊기";
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    log("⬇", message);
+    handleEvent(message);
+  };
+  socket.onclose = (event) => {
+    clearInterval(pingTimer);
+    const reasons = { 4401: "세션 만료·로그아웃", 4403: "Origin 거절", 4408: "무응답 종료" };
+    setStatus(`끊김 ${event.code}${reasons[event.code] ? " " + reasons[event.code] : ""}`, false);
+    $("ws-toggle").textContent = "재연결";
+    log("✖", `WS closed code=${event.code}`);
+  };
+  socket.onopen = () => {
+    pingTimer = setInterval(() => {
+      socket.send(JSON.stringify({ type: "ping" }));
+      log("⬆", { type: "ping" });
+    }, PING_MS);
+  };
+}
+
+$("ws-toggle").addEventListener("click", async () => {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.close();
+    return;
+  }
+  connect();
+  // 재연결 후에는 놓친 이벤트가 있을 수 있으므로 HTTP 로 다시 읽는다
+  await loadRooms(true);
+  if (currentRoomId) await openRoom(currentRoomId);
+});
+
+function handleEvent(message) {
+  if (message.type === "ready") setStatus("연결됨", true);
+  if (message.type === "message.created" && message.data.chat_room_id === currentRoomId) addMessage(message.data);
+  if (message.type === "room.updated") {
+    rooms.set(message.data.chat_room_id, message.data);
+    renderRooms();
+  }
+}
+
+// ---- 동료 ----
+
+async function loadUsers(reset) {
+  try {
+    const params = new URLSearchParams({ q: $("user-q").value.trim(), limit: "20" });
+    if (!reset && usersCursor) params.set("cursor", usersCursor);
+    const { data } = await api("GET", `/api/users/search?${params}`);
+    if (reset) $("users").replaceChildren();
+    for (const user of data.items) {
+      const box = el("input", { type: "checkbox", checked: picked.has(user.user_id), onchange: (e) => e.target.checked ? picked.add(user.user_id) : picked.delete(user.user_id) });
+      $("users").append(el("div", { class: "row" },
+        el("label", {}, box, ` ${user.name} `),
+        el("span", { class: "muted" }, user.email), " ",
+        el("button", { onclick: () => openDirect(user.user_id) }, "1:1"),
+      ));
+    }
+    usersCursor = data.next_cursor;
+    $("users-more").classList.toggle("hidden", !usersCursor);
+  } catch (error) { showError(error); }
+}
+
+$("user-search").addEventListener("click", () => loadUsers(true));
+$("user-q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadUsers(true); });
+$("users-more").addEventListener("click", () => loadUsers(false));
+
+async function openDirect(userId) {
+  showError(null);
+  try {
+    const { status, data } = await api("POST", "/api/chat/rooms/direct", { target_user_id: userId });
+    log("ℹ", `1:1방 ${status === 201 ? "생성(201)" : "기존 방(200)"}`);
+    rooms.set(data.chat_room_id, data);
+    renderRooms();
+    await openRoom(data.chat_room_id);
+  } catch (error) { showError(error); }
+}
+
+$("group-create").addEventListener("click", async () => {
+  showError(null);
+  try {
+    const title = $("group-title").value;
+    const { data } = await api("POST", "/api/chat/rooms/group", { title: title || null, member_ids: [...picked] });
+    picked.clear();
+    $("group-title").value = "";
+    await loadUsers(true);
+    rooms.set(data.chat_room_id, data);
+    renderRooms();
+    await openRoom(data.chat_room_id);
+  } catch (error) { showError(error); }
+});
+
+// ---- 채팅방 목록 ----
+
+async function loadRooms(reset) {
+  try {
+    const params = new URLSearchParams({ q: $("room-q").value.trim(), limit: "20" });
+    if (!reset && roomsCursor) params.set("cursor", roomsCursor);
+    const { data } = await api("GET", `/api/chat/rooms?${params}`);
+    if (reset) rooms.clear();
+    for (const room of data.items) rooms.set(room.chat_room_id, room);
+    roomsCursor = data.next_cursor;
+    $("rooms-more").classList.toggle("hidden", !roomsCursor);
+    renderRooms();
+  } catch (error) { showError(error); }
+}
+
+$("room-search").addEventListener("click", () => loadRooms(true));
+$("room-q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadRooms(true); });
+$("rooms-more").addEventListener("click", () => loadRooms(false));
+
+function renderRooms() {
+  // 서버와 같은 정렬: last_activity_at, chat_room_id 내림차순
+  const sorted = [...rooms.values()].sort((a, b) =>
+    b.last_activity_at.localeCompare(a.last_activity_at) || b.chat_room_id.localeCompare(a.chat_room_id));
+  $("rooms").replaceChildren(...sorted.map((room) => el("div", {
+      class: `row room${room.chat_room_id === currentRoomId ? " active" : ""}`,
+      onclick: () => openRoom(room.chat_room_id),
+    },
+    el("div", {}, `${room.type === "DIRECT" ? "👤" : "👥"} ${room.display_title} `, el("span", { class: "muted" }, `(${room.member_count}명)`)),
+    el("div", { class: "muted" }, room.last_message ? `${room.last_message.sender.name}: ${room.last_message.message}` : "메시지 없음"),
+    el("div", { class: "muted" }, time(room.last_activity_at)),
+  )));
+}
+
+// ---- 대화 ----
+
+async function openRoom(roomId) {
+  showError(null);
+  try {
+    const { data: room } = await api("GET", `/api/chat/rooms/${roomId}`);
+    currentRoomId = roomId;
+    rooms.set(roomId, room);
+    renderRooms();
+    $("room-title").textContent = `${room.display_title} · ${room.type} · ${room.member_count}명`;
+    $("room-members").textContent = `참여자(나 제외): ${room.members.map((m) => m.name).join(", ") || "없음"}`;
+    messages.clear();
+    messagesCursor = null;
+    await loadMessages();
+    $("message").disabled = false;
+    $("send").disabled = false;
+    $("message").focus();
+  } catch (error) { showError(error); }
+}
+
+async function loadMessages() {
+  const params = new URLSearchParams({ limit: "30" });
+  if (messagesCursor) params.set("cursor", messagesCursor);
+  const { data } = await api("GET", `/api/chat/rooms/${currentRoomId}/messages?${params}`);
+  for (const message of data.items) messages.set(message.message_id, message);
+  messagesCursor = data.next_cursor;
+  $("messages-more").classList.toggle("hidden", !messagesCursor);
+  renderMessages(!params.has("cursor"));
+}
+
+$("messages-more").addEventListener("click", () => loadMessages().catch(showError));
+
+// HTTP 응답과 WS 이벤트가 둘 다 오므로 message_id 로 중복을 없앤다. 보낸 직후 임시 메시지는 client_id 로 찾는다
+function addMessage(message) {
+  if (message.client_id) messages.delete(message.client_id);
+  messages.set(message.message_id, message);
+  renderMessages(true);
+}
+
+function renderMessages(scrollToEnd) {
+  const sorted = [...messages.values()].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at) || String(a.message_id).localeCompare(String(b.message_id)));
+  $("messages").replaceChildren(...sorted.map((m) => el("div", {
+      class: `msg${me && m.user_id === me.user_id ? " mine" : ""}${m.pending ? " pending" : ""}`,
+    },
+    el("div", { class: "muted" }, `${m.sender.name} · ${m.pending ? "전송 중" : time(m.created_at)}`),
+    m.message,
+  )));
+  if (scrollToEnd) $("messages").scrollTop = $("messages").scrollHeight;
+}
+
+$("composer").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = $("message").value;
+  if (!currentRoomId) return;
+  showError(null);
+  const clientId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  messages.set(clientId, {
+    message_id: clientId, user_id: me.user_id, sender: { user_id: me.user_id, name: me.name },
+    message: text, created_at: new Date().toISOString(), pending: true,
+  });
+  renderMessages(true);
+  $("message").value = "";
+  try {
+    const { data } = await api("POST", `/api/chat/rooms/${currentRoomId}/messages`, { message: text, client_id: clientId });
+    addMessage(data);
+  } catch (error) {
+    messages.delete(clientId);
+    renderMessages(true);
+    showError(error);
+  }
+});
+
+// 새로고침해도 로그인이 살아 있으면 이어서 쓴다
+api("GET", "/api/auth/me").then(({ data }) => afterLogin(data)).catch(() => {});
+</script>
+</body>
+</html>
