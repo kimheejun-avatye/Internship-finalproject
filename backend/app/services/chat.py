@@ -136,6 +136,8 @@ def message_out(message: Message, sender_name: str, client_id: Optional[str] = N
         "user_id": message.user_id,
         "sender": {"user_id": message.user_id, "name": sender_name},
         "message": message.message,
+        "kind": message.kind,
+        "payload": message.payload,
         "created_at": message.created_at,
         "client_id": client_id,
     }
@@ -385,7 +387,8 @@ def list_messages(
 
 
 def send_message(
-    db, chat_room_id: UUID, user: User, message: str, client_id: Optional[str]
+    db, chat_room_id: UUID, user: User, message: str, client_id: Optional[str],
+    kind: str = "TEXT", payload: Optional[dict] = None,
 ) -> dict:
     """메시지를 저장하고 Message(+client_id)를 돌려준다.
 
@@ -394,7 +397,8 @@ def send_message(
     """
     room = require_member(db, chat_room_id, user.user_id)
     now = clock.now()
-    saved = Message(chat_room_id=chat_room_id, user_id=user.user_id, message=message, created_at=now)
+    # kind/payload 는 서버 안에서만 넘긴다. REST 요청 본문(MessageIn)으로는 받지 않아 카드를 위조할 수 없다
+    saved = Message(chat_room_id=chat_room_id, user_id=user.user_id, message=message, kind=kind, payload=payload, created_at=now)
     db.add(saved)
     # 동시에 보낸 메시지가 먼저 commit 해도 시각이 뒤로 가지 않게 한다. GREATEST 는 NULL 을 무시한다
     db.execute(

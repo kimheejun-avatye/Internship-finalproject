@@ -133,6 +133,13 @@ class ReservationCreateOut(BaseModel):
     created_at: AwareDatetime
 
 
+class ReservationShareOut(BaseModel):
+    """예약 일정을 참석자에게 채팅으로 보낸 결과. 예약자 본인은 제외한다."""
+
+    sent_user_ids: list[UUID]
+    failed_user_ids: list[UUID]
+
+
 # 시간대별 일정 있는 사람 조회 요청: 참석자 선택 화면에서 선택 불가 표시를 위해 쓴다.
 class BusyUsersQuery(BaseModel):
     start_at: AwareDatetime

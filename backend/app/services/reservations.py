@@ -1,5 +1,6 @@
 """예약·캘린더 조회의 동기 서비스."""
 
+import logging
 from typing import Any
 from uuid import UUID
 from datetime import datetime, time, timedelta
@@ -14,7 +15,7 @@ from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.users import User
-from app.services import room_blocks
+from app.services import chat, room_blocks
 from app.schemas.reservations import (
     AvailabilityQuery,
     BusyUsersOut,
@@ -25,12 +26,16 @@ from app.schemas.reservations import (
     ReservationCreateOut,
     ReservationListOut,
     ReservationOut,
+    ReservationShareOut,
     TimeSlotOut,
 )
 
 
+logger = logging.getLogger(__name__)
+
 # 가능 시간 조회가 허용하는 오늘 이후 최대 일수
 AVAILABILITY_MAX_DAYS = 365
+WEEKDAYS = "월화수목금토일"
 
 
 # 예약·캘린더 조회 규칙을 담당하는 서비스
@@ -454,6 +459,55 @@ class ReservationService:
             .where(*overlap)
         )
         return BusyUsersOut(user_ids=sorted(self.db.scalars(union(organizers, attendees))))
+
+    # 채팅에 보낼 예약 안내 문장. 시각은 한국 시간으로 쓴다.
+    @staticmethod
+    def _share_text(reservation: Reservation, room_name: str) -> str:
+        kst = ZoneInfo("Asia/Seoul")
+        start, end = reservation.start_at.astimezone(kst), reservation.end_at.astimezone(kst)
+        day = f"{start:%Y-%m-%d}({WEEKDAYS[start.weekday()]})"
+        end_text = f"{end:%H:%M}" if end.date() == start.date() else f"{end:%m-%d} {end:%H:%M}"
+        return f"[회의실 예약] {reservation.title}\n{day} {start:%H:%M}–{end_text}\n회의실: {room_name}"
+
+    def share_reservation(self, reservation_id: UUID, user: User) -> ReservationShareOut:
+        """예약자가 참석자마다 1:1 채팅방(없으면 생성)으로 예약 안내를 보낸다.
+
+        예약은 이미 확정된 뒤이고 채팅방·메시지는 참석자별로 따로 커밋한다. 한 명이 실패해도
+        나머지는 계속 보내며 성공/실패한 사용자를 나눠 돌려준다. 같은 요청을 다시 하면 메시지가 다시 간다.
+        """
+        reservation = self.db.get(Reservation, reservation_id)
+        if reservation is None:
+            raise ApiError(404, "RESERVATION_NOT_FOUND", "예약을 찾을 수 없습니다.")
+        if reservation.user_id != user.user_id:
+            raise ApiError(403, "SHARE_FORBIDDEN", "예약자만 참석자에게 공유할 수 있습니다.")
+
+        room = self.db.get(Room, reservation.room_id)
+        text = self._share_text(reservation, room.name)
+        # 카드는 보낸 시점의 스냅샷이다. 예약이 나중에 바뀌어도 이미 보낸 카드는 그대로다.
+        card = {
+            "reservation_id": str(reservation.reservation_id),
+            "title": reservation.title,
+            "start_at": reservation.start_at.isoformat(),
+            "end_at": reservation.end_at.isoformat(),
+            "room_name": room.name,
+        }
+        recipients = list(self.db.scalars(
+            select(ReservationAttendee.user_id)
+            .where(ReservationAttendee.reservation_id == reservation_id, ReservationAttendee.user_id != user.user_id)
+            .order_by(ReservationAttendee.user_id)
+        ))
+        sent, failed = [], []
+        for target_id in recipients:
+            try:
+                opened, _ = chat.open_direct(self.db, user, target_id)
+                chat.send_message(self.db, opened["chat_room_id"], user, text, None, kind="RESERVATION", payload=card)
+                sent.append(target_id)
+            except Exception:
+                # 차단·탈퇴한 사용자, DB 오류 등. 이미 커밋된 앞사람은 그대로 두고 이 사람만 실패로 기록한다.
+                self.db.rollback()
+                logger.warning("Reservation share failed for %s", target_id, exc_info=True)
+                failed.append(target_id)
+        return ReservationShareOut(sent_user_ids=sent, failed_user_ids=failed)
 
     # 참석자 시간 중복 검사: create_reservation의 잠금 안에서 _validate_attendees 뒤에 호출한다.
     def _check_attendee_conflicts(self, attendee_ids: list[UUID], start_at: datetime, end_at: datetime) -> None:
