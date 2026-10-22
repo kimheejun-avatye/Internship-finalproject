@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import Depends, Request
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
 from app.core.exceptions import ApiError
@@ -21,6 +24,8 @@ def authenticated(request: Request, db=Depends(get_db)):
         db.rollback()
         raise
     else:
+        # Confirm handler writes before the optional session activity update.
+        db.commit()
         # Run before sending the response, while authentication's DB dependency is alive.
         # Recheck after a service commit so a concurrent logout cannot be resurrected.
         if request.headers.get(
@@ -33,9 +38,14 @@ def authenticated(request: Request, db=Depends(get_db)):
             try:
                 _, fresh = sessions.current(db, token)
                 sessions.touch(fresh)
+                db.commit()
             except ApiError:
                 db.rollback()
-        db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                logging.getLogger(__name__).warning(
+                    "Optional session activity update failed", exc_info=True
+                )
 
 
 def set_cookie(response, token):

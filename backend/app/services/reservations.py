@@ -1,8 +1,8 @@
-"""예약·캘린더 조회와 참석자 리마인더의 동기 서비스 스켈레톤."""
+"""예약·캘린더 조회의 동기 서비스."""
 
 from typing import Any
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 
@@ -16,23 +16,23 @@ from app.models.reservation_attendee import ReservationAttendee
 from app.models.users import User
 from app.services import room_blocks
 from app.schemas.reservations import (
+    AvailabilityQuery,
     CalendarQuery,
     CalendarReservationResponse,
     ReservationCreateIn,
     ReservationCreateOut,
     ReservationListOut,
     ReservationOut,
+    TimeSlotOut,
 )
 
 
-# 예약·캘린더 조회 규칙과 참석자별 Slack 리마인더 처리를 담당하는 서비스
+# 예약·캘린더 조회 규칙을 담당하는 서비스
 class ReservationService:
     """기존 동기 Session을 주입받으며 세션을 생성하거나 종료하지 않는다.
 
-    HTTP 연결 시 기존 get_db가 세션 수명을 관리한다. 향후 cron 실행 코드도
-    기존 SessionLocal 컨텍스트로 세션을 관리해야 한다.
+    HTTP 연결 시 기존 get_db가 세션 수명을 관리한다.
     TODO: 공통 조회 조건을 재사용할 리포지토리가 생기면 DB 접근을 위임한다.
-    현재 저장소에 리포지토리 및 Slack 클라이언트 추상화는 없다.
     """
 
     # 생성자: 외부에서 수명을 관리하는 동기 DB 세션을 주입받아 보관한다.
@@ -84,6 +84,8 @@ class ReservationService:
             if conflict is not None:
                 raise ApiError(409, "RESERVATION_CONFLICT", "이미 예약된 시간과 겹칩니다.")
 
+            # TODO: 정원 검사 — self._validate_attendees(room, user_id, data.attendee_ids) 호출.
+
             reservation = Reservation(
                 room_id=data.room_id,
                 user_id=user_id,
@@ -94,6 +96,8 @@ class ReservationService:
             )
             self.db.add(reservation)
             self.db.flush()
+            # TODO: 참여자 저장 — self._save_attendees(reservation.reservation_id, ...) 호출.
+            # 예약과 참여자는 같은 트랜잭션에서 commit/rollback 되어야 한다.
             # 응답 구성까지 성공한 뒤 저장을 확정한다.
             result = ReservationCreateOut.model_validate(reservation)
             self.db.commit()
@@ -182,7 +186,9 @@ class ReservationService:
         RoomOut은 room_id/name 외 status/capacity도 포함한다.
         TODO: BLOCK 회의실 표시 여부는 제품 정책 확인 후 결정한다.
         """
-        raise NotImplementedError
+        # 기존 회의실 목록과 동일하게 상태로 제외하지 않고 이름·ID 순으로 제공한다.
+        rooms = self.db.scalars(select(Room).order_by(Room.name, Room.room_id)).all()
+        return [RoomOut.model_validate(room) for room in rooms]
 
     # 선택한 회의실의 오늘 남은 예약을 예약자 구분 없이 5건씩 조회한다.
     def get_my_today_reservations(
@@ -304,38 +310,109 @@ class ReservationService:
             page_size=page_size,
         )
 
-    # 리마인더 동기화: 예약 일정·참석자 변경에 맞춰 참석자별 알림과 예정 시각을 갱신한다.
-    def sync_reservation_reminders(self, reservation_id: UUID) -> None:
-        """예약 생성·일정 변경·참석자 변경 이후 참석자별 알림 작업 동기화.
+    # 가능 시간 조회: 하루 24시간을 1시간 슬롯 24개로 나눠 예약·차단·과거 시각과 겹치는지 표시한다.
+    def get_room_availability(self, query: AvailabilityQuery) -> list[TimeSlotOut]:
+        """한국 시간 기준 query.date 하루를 query.slot_minutes 간격으로 나눈 슬롯 목록.
 
-        TODO: ReservationAttendee의 (reservation_id, user_id) 복합 PK를 기준으로
-        생성/갱신한다. 별도 reservation_attendee_id는 없다. 생성자도 실제 참석자로
-        등록된 경우에만 수신자다. 참석자별 복합 FK와 UNIQUE(최대 한 건)를 준수한다.
-        TODO: 원본 Reservation.start_at의 10분 전을 scheduled_at으로 설정한다.
-        meeting_start_at, attempt_count, next_attempt_at은 저장하지 않는다.
-        TODO: 일정 변경 시 미발송 대기 작업의 예정 시각 갱신. PROCESSING 작업과의
-        경합, FAILED 작업 처리 정책을 확인하되 자동 재시도는 하지 않는다.
-        TODO: 참석자 제거·예약 취소/삭제 시 CANCELLED 전환과 FK CASCADE에 따른
-        삭제 처리 정책 확인. 이미 SENT인 알림의 일정 변경 후 재발송 여부는 미정.
-        TODO: 이미 지난 발송 예정 시각의 처리 정책 확인. 실제 저장은 후속 구현.
+        입력: 회의실 ID, 날짜, 슬롯 길이. 반환: 시간순 list[TimeSlotOut].
+        TODO: 회의실이 없으면 404 ROOM_NOT_FOUND, ACTIVE가 아니면 슬롯을 모두 불가로 처리할지 결정.
+        TODO: 그 날짜와 겹치는 Reservation을 한 번에 조회한다(슬롯마다 쿼리하지 않는다).
+        TODO: room_blocks.overlapping_blocks로 관리자 차단 구간을 가져와 슬롯과 대조한다.
+        결정: 영업 시간 제한 없이 하루 24시간을 1시간 단위 슬롯 24개로 나눈다.
+        TODO: 현재 시각 이전 슬롯은 available=False로 표시한다. 겹침 판단은 [start, end) 반열린 구간.
+        TODO: create_reservation의 중복 검사 조건과 일치하는지 확인한다.
         """
-        raise NotImplementedError
 
-    # dispatch_due_reminders: 발송 시각이 된 참석자별 Slack DM 알림을 한 번 시도하고 결과 기록
-    # 향후 cron에서 호출하며, 실패하거나 처리 중인 작업은 자동 재시도하지 않는다.
-    def dispatch_due_reminders(self) -> None:
-        """향후 cron 실행 코드가 호출한다. 페이지 접속·작업 큐와 무관하다.
+        room = self.db.get(Room, query.room_id)
 
-        TODO: scheduled_at <= 현재 시각인 PENDING만 조회하고 원자적으로 선점해
-        PROCESSING 전환 및 claimed_at 기록. 중복 cron 실행에도 선점은 한 번만.
-        TODO: 선점 상태의 영속화와 외부 발송 전후 트랜잭션 경계를 설계한다.
-        TODO: 실제 참석자와 예약 상태를 확인하고 시작 시각은 Reservation.start_at 참조.
-        TODO: User에 Slack 계정 연결이 없으므로 연동 방식과 클라이언트 의존성 확정.
-        참석자의 개인 DM 대상(slack_channel_id)을 확인하고 시작 10분 전 알림 전송.
-        TODO: 한 번만 발송 시도. 성공 시 SENT/sent_at, 실패 시 FAILED/last_error 기록.
-        FAILED 및 PROCESSING 자동 재시도 금지. SDK 자동 재시도도 비활성화 필요.
-        TODO: 서버 중단으로 남은 PROCESSING 작업의 운영상 처리 정책 확인.
-        TODO: API 타임아웃 시 실제 전달 여부가 불명확하므로 정확히 한 번 전달을
-        보장한다고 가정하지 않는다. 불명확한 결과의 기록·운영 정책 확인.
+        if room is None:
+            raise ApiError(404, "ROOM_NOT_FOUND", "회의실을 찾을 수 없습니다.")
+
+        day_start = datetime.combine(query.date, time.min, tzinfo=ZoneInfo("Asia/Seoul"))
+        day_end = day_start + timedelta(days=1)
+        slot_length = timedelta(minutes=query.slot_minutes)     # 슬롯 1시간
+
+        # ACTIVE가 아니면 조회 없이 모든 슬롯을 불가로 표시한다.
+        room_active = room.status == RoomStatus.ACTIVE
+        reservations = []
+        blocks = []
+        if room_active:
+            reservations = self.db.scalars(
+                select(Reservation).where(
+                    Reservation.room_id == query.room_id,
+                    Reservation.start_at < day_end,
+                    Reservation.end_at > day_start,
+                )
+            ).all()
+            blocks = room_blocks.overlapping_blocks(
+                self.db, query.room_id, day_start, day_end
+            )
+
+        now = datetime.now(ZoneInfo("Asia/Seoul"))
+        slots = []
+        for i in range(24 * 60 // query.slot_minutes):
+            slot_start = day_start + slot_length * i
+            slot_end = slot_start + slot_length
+
+            # 사유는 우선순위 순으로 하나만 정한다. None이면 예약 가능.
+            if not room_active:
+                reason = "ROOM_UNAVAILABLE"
+            elif slot_start < now:
+                reason = "PAST"
+            elif any(r.start_at < slot_end and r.end_at > slot_start for r in reservations):
+                reason = "RESERVED"
+            elif any(b.start_at < slot_end and b.end_at > slot_start for b in blocks):
+                reason = "BLOCKED"
+            else:
+                reason = None
+
+            slots.append(
+                TimeSlotOut(
+                    start_at=slot_start,
+                    end_at=slot_end,
+                    available=reason is None,
+                    reason=reason,
+                )
+            )
+        return slots
+
+    # 참여자·정원 검사: create_reservation의 잠금 안에서 호출한다.
+    def _validate_attendees(self, room: Room, organizer_id: UUID, attendee_ids: list[UUID]) -> list[UUID]:
+        """중복을 제거한 참여자 ID 목록을 반환하고 위반 시 ApiError를 발생시킨다.
+
+        TODO: 존재하지 않거나 승인 대기·차단 사용자가 섞여 있으면 404/400으로 거부한다.
+        결정: 주최자는 참석자에 자동 포함되고 정원에도 포함한다(주최자 + 참여자 수 <= capacity).
+        결정: 팀은 제한하지 않는다. 다른 팀 사용자도 참여자로 지정할 수 있다.
+        결정: 인원 > room.capacity 이면 409 CAPACITY_EXCEEDED 로 거부한다.
+        """
+
+        attendee_ids = [organizer_id] + attendee_ids  # 주최자를 포함한다.
+        attendee_ids = list(set(attendee_ids))  # 중복 제거
+        
+        attendee = self.db.scalars(
+            select(User.user_id)
+            .where(User.user_id.in_(attendee_ids),
+                   User.approved_at.isnot(None),
+                   User.blocked_at.is_(None))
+        ).all()
+
+        # 사용자 검증 
+        if len(attendee) != len(attendee_ids):
+            error_ids = set(attendee_ids) - set(attendee)
+            raise ApiError(404, "USER_NOT_FOUND", "invalid_ids: " + ", ".join(str(id) for id in error_ids))
+            
+        # 정원검사
+        if room.capacity < len(attendee):
+            raise ApiError(409, "CAPACITY_EXCEEDED", "참석자 수가 회의실 정원을 초과합니다.")
+        
+
+        return attendee
+
+    # 참여자 저장: reservation_attendees 행을 추가한다.
+    def _save_attendees(self, reservation_id: UUID, attendee_ids: list[UUID]) -> None:
+        """ReservationAttendee (reservation_id, user_id) 행을 추가한다. commit은 호출자가 한다.
+
+        TODO: 복합 PK 중복이 없도록 _validate_attendees에서 정리된 목록만 받는다.
+        TODO: 예약 응답(ReservationCreateOut)에 참여자 정보를 포함할지 결정한다.
         """
         raise NotImplementedError
