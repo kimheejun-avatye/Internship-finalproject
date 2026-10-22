@@ -16,3 +16,7 @@ class InertWebSocket {
   close() { this.readyState = 3; }
 }
 globalThis.WebSocket = InertWebSocket as unknown as typeof WebSocket;
+
+// jsdom does not implement the native dialog top layer. Browser QA covers focus trapping.
+HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+HTMLDialogElement.prototype.close = function () { this.open = false; };

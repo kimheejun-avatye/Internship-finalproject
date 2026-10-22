@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import App from "./App";
-import { AuthProvider } from "../features/auth/AuthProvider";
+import { AuthenticatedProviders as AuthProvider } from "./providers";
 import { setCsrfToken } from "../shared/api/session-client";
 const session = { user: { user_id: "u1", email: "member@example.com", name: "회원", team: "AVATYE", role: "MEMBER" }, csrf_token: "csrf", idle_expires_at: new Date(Date.now()+1800000).toISOString(), absolute_expires_at: new Date(Date.now()+28800000).toISOString() };
 const room = { room_id: "0a01e4aa-c032-47f8-8751-1a29b069fa0a", name: "로그인 확인 회의실", status: "ACTIVE", capacity: 6 };
@@ -84,7 +84,7 @@ it("waits for session lookup before showing a logged-out form", () => {
   expect(screen.queryByLabelText("아이디")).not.toBeInTheDocument();
 });
 
-it("keeps the selected room and page while StrictMode restores the session", async () => {
+it("keeps the selected room and date while StrictMode restores the session", async () => {
   const checks: ((response: Response) => void)[] = [];
   const fetch = vi.fn((path: string) => {
     if (path === "/api/auth/me") return new Promise<Response>(resolve => checks.push(resolve));
@@ -95,19 +95,17 @@ it("keeps the selected room and page while StrictMode restores the session", asy
     if (path.startsWith("/api/users/search?")) return Promise.resolve(json({ items: [], next_cursor: null }));
     if (path.startsWith("/api/chat/rooms?")) return Promise.resolve(json({ items: [], next_cursor: null }));
     if (path.startsWith("/api/rooms/room-b/availability?")) return Promise.resolve(json([]));
-    if (path === "/api/rooms/room-b/reservations?page=2") {
-      return Promise.resolve(json({ items: [], page: 2, page_size: 5, total: 6 }));
-    }
+    if (path.startsWith("/api/calendar/reservations?")) return Promise.resolve(json([]));
     throw new Error(`Unexpected API request in session restoration test: ${path}`);
   });
   vi.stubGlobal("fetch", fetch);
-  render(<StrictMode><MemoryRouter initialEntries={["/reservations?room_id=room-b&page=2"]}><AuthProvider><App /></AuthProvider></MemoryRouter></StrictMode>);
+  render(<StrictMode><MemoryRouter initialEntries={["/reservations?room_id=room-b&date=2026-10-29"]}><AuthProvider><App /></AuthProvider></MemoryRouter></StrictMode>);
   await act(async () => checks[0](new Response(JSON.stringify(session), { status: 200 })));
   expect(screen.getByRole("status")).toHaveTextContent("로그인 상태를 확인하고 있습니다.");
   expect(screen.queryByRole("button", { name: "로그인" })).not.toBeInTheDocument();
   await act(async () => checks[1](new Response(JSON.stringify(session), { status: 200 })));
-  expect(await screen.findByRole("heading", { name: "회의실 B · 오늘 남은 일정" })).toBeInTheDocument();
-  expect(fetch).toHaveBeenCalledWith("/api/rooms/room-b/reservations?page=2", expect.anything());
+  expect(await screen.findByRole("heading", { name: "회의실 B · 하루 일정" })).toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/api\/calendar\/reservations\?.*room_id=room-b/), expect.anything());
 });
 
 

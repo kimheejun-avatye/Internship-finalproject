@@ -51,6 +51,8 @@ class SignupIn(EmailIn):
     birth_date: date
     phone: str
     team: Team
+    # 부서/직무는 프로필 표시용 문자열 하나로 받으며, 항목 분리나 구분자 입력을 강제하지 않는다.
+    position: str
 
     @field_validator("password")
     @classmethod
@@ -72,6 +74,15 @@ class SignupIn(EmailIn):
         v = v.strip()
         if not 1 <= len(v) <= 50:
             raise ValueError("이름은 1~50자여야 합니다.")
+        return v
+
+    # 프론트 검증을 우회한 요청도 처리하므로 서버에서도 공백을 제거하고 필수 입력을 검증한다.
+    @field_validator("position")
+    @classmethod
+    def _position(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("부서 / 직무를 입력해 주세요.")
         return v
 
     @field_validator("birth_date")

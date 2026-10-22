@@ -5,7 +5,6 @@ import { openRealtime, type ChatEvent } from "./chat.realtime";
 import type { ChatData, ChatMessage, ChatRoom, ChatSnapshot, ChatUser, MessageDto, RoomSummaryDto } from "./chat.types";
 
 const LOAD_ERROR = "채팅 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
-const AUTH_LOST = "로그인이 만료되었거나 종료되었습니다. 다시 로그인해주세요.";
 // 재연결 후 놓친 메시지를 찾을 때 최대로 거슬러 올라갈 페이지 수
 const CATCH_UP_PAGES = 10;
 
@@ -196,7 +195,6 @@ export function createLiveChat(me: ChatUser): ChatData {
         onEvent: handle,
         // 끊겼다 다시 붙으면 그 사이 놓친 방·메시지를 HTTP 로 다시 읽는다
         onReady: () => { if (everReady) void resync(); everReady = true; },
-        onAuthLost: () => window.dispatchEvent(new CustomEvent("auth:lost", { detail: AUTH_LOST })),
       });
     },
     disconnect: () => { stopRealtime?.(); stopRealtime = null; },

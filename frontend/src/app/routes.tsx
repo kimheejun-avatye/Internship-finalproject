@@ -9,6 +9,7 @@ import SignupPage from "../features/auth/pages/SignupPage";
 import PasswordResetPage from "../features/auth/pages/PasswordResetPage";
 import PasswordChangePage from "../features/account/pages/PasswordChangePage";
 import ReservationPage from "../features/reservations/pages/ReservationPage";
+import MeetingNotePage from "../features/meeting-notes/pages/MeetingNotePage";
 import CalendarPage from "../features/reservations/pages/CalendarPage";
 import AdminPage from "../features/admin/pages/AdminPage";
 
@@ -27,6 +28,7 @@ export default function AppRoutes() {
       </Route>
       <Route element={<MainLayout />}>
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/reservations/:reservationId/memo" element={<MeetingNotePage />} />
         <Route path="/reservations" element={<ReservationPage />} />
         <Route element={<AdminRoute />}>
           <Route path="/admin" element={<AdminPage />} />

@@ -4,11 +4,11 @@ import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import ReservationPage from "./ReservationPage";
 import * as api from "../reservations.api";
-import type { Room, ReservationItem, ReservationList, CreatedReservation } from "../reservations.types";
+import type { Room, CalendarReservation, CreatedReservation } from "../reservations.types";
 import { ApiError } from "../../../shared/api/client";
 
 vi.mock("../reservations.api", () => ({
-  listRooms: vi.fn(), listReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(), getBusyUsers: vi.fn(),
+  listRooms: vi.fn(), getCalendarReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(), getBusyUsers: vi.fn(),
 }));
 vi.mock("../../../shared/hooks/useSelectableUsers", () => ({
   useSelectableUsers: () => ({
@@ -23,14 +23,13 @@ const rooms: Room[] = [
   { room_id: secondId, name: "DB 회의실 B", status: "ACTIVE", capacity: 10 },
   { room_id: "blocked", name: "점검 회의실", status: "BLOCK", capacity: 4 },
 ];
-const item: ReservationItem = {
-  reservation_id: "saved-id", room_id: firstId, user_id: "user-id", title: "서버에 저장된 예약",
+const item: CalendarReservation = {
+  reservation_id: "saved-id", room_id: firstId, organizer_id: "user-id", room_name: "DB 회의실 A", is_mine: true, is_attending: true, title: "서버에 저장된 예약",
   start_at: "2026-10-19T21:00:00+09:00", end_at: "2026-10-19T22:00:00+09:00",
-  participant_count: 2, team: "AVATYE",
+  participant_count: 2,
 };
-const empty: ReservationList = { items: [], total: 0, page: 1, page_size: 5 };
-const pageOf = (items: ReservationItem[], page = 1, total = items.length): ReservationList =>
-  ({ items, total, page, page_size: 5 });
+const empty: CalendarReservation[] = [];
+const pageOf = (items: CalendarReservation[]) => items;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -40,10 +39,10 @@ beforeEach(() => {
     const start = new Date(`${date}T${String(hour).padStart(2, "0")}:00:00+09:00`);
     return { start_at: start.toISOString(), end_at: new Date(start.getTime() + 3_600_000).toISOString(), available: start.getTime() > Date.now(), reason: start.getTime() > Date.now() ? null : "PAST" };
   }));
-  vi.mocked(api.listReservations).mockResolvedValue(empty);
+  vi.mocked(api.getCalendarReservations).mockResolvedValue(empty);
   vi.mocked(api.getBusyUsers).mockResolvedValue({ user_ids: [] });
   vi.mocked(api.createReservation).mockResolvedValue({
-    ...item, created_at: "2026-10-19T20:30:00+09:00",
+    ...item, user_id: item.organizer_id, created_at: "2026-10-19T20:30:00+09:00",
   });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -60,7 +59,7 @@ function renderPage() {
 }
 
 async function fillForm(title = item.title) {
-  await screen.findByRole("heading", { name: "DB 회의실 A · 오늘 남은 일정" });
+  await screen.findByRole("heading", { name: "DB 회의실 A · 하루 일정" });
   await waitFor(() => expect(screen.getByRole("button", { name: "예약하기" })).toBeEnabled());
   fireEvent.change(screen.getByLabelText("시작 (한국 시간)"), { target: { value: "21:00" } });
   fireEvent.change(screen.getByLabelText("종료 (한국 시간)"), { target: { value: "22:00" } });
@@ -68,18 +67,18 @@ async function fillForm(title = item.title) {
 }
 
 it("loads rooms and reservations from APIs and disables blocked rooms", async () => {
-  vi.mocked(api.listReservations).mockResolvedValue(pageOf([item]));
+  vi.mocked(api.getCalendarReservations).mockResolvedValue(pageOf([item]));
   renderPage();
   expect(await screen.findByText(item.title)).toBeInTheDocument();
-  expect(api.listReservations).toHaveBeenCalledWith(firstId, 1);
+  expect(api.getCalendarReservations).toHaveBeenCalledWith({ room_id: firstId, start_at: "2026-10-19T00:00:00+09:00", end_at: "2026-10-20T00:00:00+09:00", scope: "all" }, expect.any(AbortSignal));
   expect(screen.getByRole("button", { name: /점검 회의실/ })).toBeDisabled();
-  expect(screen.getByText("AVATYE / 참석 2명")).toBeInTheDocument();
+  expect(screen.getByText(/참석 2명/)).toBeInTheDocument();
   expect(screen.getByLabelText("예약 날짜")).toHaveValue("2026-10-19");
 });
 
 it("creates hourly reservations with Korean offsets, prevents repeats, and returns to the reserved week", async () => {
   let finish!: (value: CreatedReservation) => void;
-  vi.mocked(api.listReservations).mockResolvedValueOnce(empty).mockResolvedValueOnce(pageOf([item]));
+  vi.mocked(api.getCalendarReservations).mockResolvedValueOnce(empty).mockResolvedValueOnce(pageOf([item]));
   vi.mocked(api.createReservation).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   renderPage();
   await fillForm("  " + item.title + "  ");
@@ -92,7 +91,7 @@ it("creates hourly reservations with Korean offsets, prevents repeats, and retur
   expect(pending).toBeDisabled();
   await userEvent.click(pending);
   expect(api.createReservation).toHaveBeenCalledTimes(1);
-  await act(async () => finish({ ...item, created_at: item.start_at }));
+  await act(async () => finish({ ...item, user_id: item.organizer_id, created_at: item.start_at }));
   expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("예약이 저장되었습니다.");
   expect(screen.getByText(/date=2026-10-19&view=week/)).toBeInTheDocument();
@@ -110,38 +109,35 @@ it("shows server conflict without inventing a saved reservation", async () => {
 });
 
 it("keeps a successful save when returning to calendar instead of refreshing the old list", async () => {
-  vi.mocked(api.listReservations).mockResolvedValueOnce(empty).mockRejectedValueOnce(new Error("목록 연결 오류"));
+  vi.mocked(api.getCalendarReservations).mockResolvedValueOnce(empty).mockRejectedValueOnce(new Error("목록 연결 오류"));
   renderPage();
   await fillForm();
   await userEvent.click(screen.getByRole("button", { name: "예약하기" }));
   expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("예약이 저장되었습니다.");
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  expect(api.listReservations).toHaveBeenCalledTimes(1);
+  expect(api.getCalendarReservations).toHaveBeenCalledTimes(1);
   expect(api.createReservation).toHaveBeenCalledTimes(1);
 });
 
-it("uses server pages and resets to page one when changing rooms", async () => {
-  vi.mocked(api.listReservations).mockImplementation(async (roomId, page) =>
-    roomId === secondId ? empty : pageOf([{ ...item, title: page === 1 ? "첫 페이지" : "둘째 페이지" }], page, 6));
+it("loads all 24 hours for the selected date and reloads on room or date changes", async () => {
   renderPage();
-  await screen.findByText("첫 페이지");
-  await userEvent.click(screen.getByRole("button", { name: "다음 페이지" }));
-  await screen.findByText("둘째 페이지");
-  expect(api.listReservations).toHaveBeenLastCalledWith(firstId, 2);
-  expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+  await screen.findByRole("heading", { name: "DB 회의실 A · 하루 일정" });
+  expect(screen.getByRole("list", { name: "2026-10-19 24시간 일정" }).children).toHaveLength(24);
+  fireEvent.change(screen.getByLabelText("예약 날짜"), { target: { value: "2026-10-20" } });
+  await waitFor(() => expect(api.getCalendarReservations).toHaveBeenLastCalledWith({ room_id: firstId, start_at: "2026-10-20T00:00:00+09:00", end_at: "2026-10-21T00:00:00+09:00", scope: "all" }, expect.any(AbortSignal)));
   await userEvent.click(screen.getByRole("button", { name: /DB 회의실 B/ }));
-  await waitFor(() => expect(api.listReservations).toHaveBeenLastCalledWith(secondId, 1));
-  expect(screen.queryByText("둘째 페이지")).not.toBeInTheDocument();
+  await waitFor(() => expect(api.getCalendarReservations).toHaveBeenLastCalledWith(expect.objectContaining({ room_id: secondId, start_at: "2026-10-20T00:00:00+09:00" }), expect.any(AbortSignal)));
+  expect(screen.queryByRole("button", { name: "다음 페이지" })).not.toBeInTheDocument();
 });
 
 it("ignores late responses for the previously selected room", async () => {
-  let finishFirst!: (data: ReservationList) => void;
-  vi.mocked(api.listReservations).mockImplementation((roomId) => roomId === firstId
+  let finishFirst!: (data: CalendarReservation[]) => void;
+  vi.mocked(api.getCalendarReservations).mockImplementation((query) => query.room_id === firstId
     ? new Promise(resolve => { finishFirst = resolve; })
     : Promise.resolve(pageOf([{ ...item, room_id: secondId, title: "B의 예약" }])));
   renderPage();
-  await waitFor(() => expect(api.listReservations).toHaveBeenCalledWith(firstId, 1));
+  await waitFor(() => expect(api.getCalendarReservations).toHaveBeenCalledWith(expect.objectContaining({ room_id: firstId }), expect.any(AbortSignal)));
   await userEvent.click(screen.getByRole("button", { name: /DB 회의실 B/ }));
   expect(await screen.findByText("B의 예약")).toBeInTheDocument();
   await act(async () => finishFirst(pageOf([item])));
@@ -173,7 +169,7 @@ it("does not navigate back after a pending creation finishes on another screen",
   expect(api.createReservation).toHaveBeenCalledTimes(1);
   await userEvent.click(screen.getByRole("link", { name: "캘린더로 이동" }));
   expect(screen.getByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
-  await act(async () => finish({ ...item, created_at: item.start_at }));
+  await act(async () => finish({ ...item, user_id: item.organizer_id, created_at: item.start_at }));
   expect(screen.getByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
   expect(screen.queryByRole("heading", { name: "회의실 예약" })).not.toBeInTheDocument();
 });
@@ -223,7 +219,80 @@ it("shows hours blocked by my other meetings as unavailable", async () => {
       available: start.getTime() > Date.now() && !mine, reason: mine ? "MY_MEETING" : null };
   }));
   renderPage();
-  await screen.findByRole("heading", { name: "DB 회의실 A · 오늘 남은 일정" });
+  await screen.findByRole("heading", { name: "DB 회의실 A · 하루 일정" });
   const option = await screen.findByRole("option", { name: "21:00 · 내 다른 회의" });
   expect(option).toBeDisabled();
+});
+
+it("applies a clicked free hour to both inputs and submits that time", async () => {
+  renderPage();
+  const hour = await screen.findByRole("button", { name: "22:00–23:00 빈 시간 선택" });
+  await waitFor(() => expect(hour).toBeEnabled());
+  await userEvent.click(hour);
+  expect(screen.getByLabelText("시작 (한국 시간)")).toHaveValue("22:00");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("23:00");
+  expect(hour).toHaveAttribute("aria-pressed", "true");
+  fireEvent.change(screen.getByLabelText("회의 제목"), { target: { value: "시간표 선택 예약" } });
+  await userEvent.click(screen.getByRole("button", { name: "예약하기" }));
+  expect(api.createReservation).toHaveBeenCalledWith(expect.objectContaining({ start_at: "2026-10-19T22:00:00+09:00", end_at: "2026-10-19T23:00:00+09:00" }));
+});
+
+it("shows past reservations and disables past and blocked hours instead of offering them as free", async () => {
+  vi.mocked(api.getCalendarReservations).mockResolvedValue([{ ...item, title: "오전 일정", start_at: "2026-10-19T09:00:00+09:00", end_at: "2026-10-19T10:00:00+09:00" }]);
+  const availability = vi.mocked(api.getAvailability).getMockImplementation()!;
+  vi.mocked(api.getAvailability).mockImplementation(async (...args) => (await availability(...args)).map(slot => Date.parse(slot.start_at) === Date.parse("2026-10-19T22:00:00+09:00") ? { ...slot, available: false, reason: "BLOCKED" } : slot));
+  renderPage();
+  expect(await screen.findByText("오전 일정")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "08:00–09:00 지난 시간" })).toBeDisabled();
+  expect(screen.getByRole("list", { name: "2026-10-19 24시간 일정" }).children).toHaveLength(24);
+  expect(screen.queryByRole("button", { name: "09:00–10:00 빈 시간 선택" })).not.toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "22:00–23:00 이용 불가" })).toBeDisabled();
+});
+
+it("selects 23:00 through midnight as the next day's 00:00", async () => {
+  renderPage();
+  const hour = await screen.findByRole("button", { name: "23:00–24:00 빈 시간 선택" });
+  await waitFor(() => expect(hour).toBeEnabled());
+  await userEvent.click(hour);
+  await waitFor(() => expect(screen.getByLabelText("종료 (한국 시간)")).toBeEnabled());
+  expect(screen.getByLabelText("시작 (한국 시간)")).toHaveValue("23:00");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("00:00");
+  expect(screen.getByLabelText("종료 날짜")).toHaveValue("2026-10-20");
+});
+
+it("does not offer free hours when the day's reservation query fails, and retries", async () => {
+  vi.mocked(api.getCalendarReservations).mockRejectedValueOnce(new Error("하루 일정 연결 오류")).mockResolvedValueOnce([]);
+  renderPage();
+  expect(await screen.findByRole("alert")).toHaveTextContent("하루 일정 연결 오류");
+  expect(screen.queryByRole("button", { name: /빈 시간 선택/ })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "일정 다시 조회" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "22:00–23:00 빈 시간 선택" })).toBeEnabled());
+});
+
+it("extends consecutive clicked hours up to four and starts a new range for a separated hour", async () => {
+  renderPage();
+  fireEvent.change(screen.getByLabelText("예약 날짜"), { target: { value: "2026-10-20" } });
+  const clickHour = async (hour: string, next: string) => {
+    const button = await screen.findByRole("button", { name: `${hour}:00–${next}:00 빈 시간 선택` });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+  };
+  await clickHour("12", "13");
+  expect(screen.getByLabelText("시작 (한국 시간)")).toHaveValue("12:00");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("13:00");
+  await clickHour("13", "14");
+  expect(screen.getByLabelText("시작 (한국 시간)")).toHaveValue("12:00");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("14:00");
+  expect(screen.getByRole("button", { name: "12:00–13:00 빈 시간 선택" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "13:00–14:00 빈 시간 선택" })).toHaveAttribute("aria-pressed", "true");
+  await clickHour("14", "15");
+  await clickHour("15", "16");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("16:00");
+  await clickHour("16", "17");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("16:00");
+  expect(screen.getByRole("alert")).toHaveTextContent("최대 4시간");
+  await clickHour("18", "19");
+  expect(screen.getByLabelText("시작 (한국 시간)")).toHaveValue("18:00");
+  expect(screen.getByLabelText("종료 (한국 시간)")).toHaveValue("19:00");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

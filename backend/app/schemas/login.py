@@ -14,6 +14,7 @@ class UserOut(BaseModel):
     user_id: str
     email: str
     name: str
+    position: str = ""
     team: Team
     role: str
 

@@ -146,6 +146,16 @@ def create_reservation(
     return controller.create_reservation(data=body, current_user=identity[0])
 
 
+@router.delete("/reservations/{reservation_id}", status_code=204, response_class=Response)
+def delete_reservation(
+    reservation_id: UUID,
+    identity=Depends(authenticated, scope="function"),
+    db: Session = Depends(get_db),
+):
+    ReservationService(db).delete_reservation(reservation_id, identity[0].user_id)
+    return Response(status_code=204)
+
+
 # 기존 동기 세션으로 컨트롤러와 서비스를 구성한다. 세션 수명은 get_db가 관리한다.
 def get_reservation_controller(db: Session = Depends(get_db)) -> ReservationController:
     return ReservationController(ReservationService(db))

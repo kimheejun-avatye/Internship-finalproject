@@ -13,7 +13,7 @@ export default function MainLayout() {
           <Outlet />
         </main>
         <aside className="main-chat-slot" aria-label="채팅 영역">
-          <ChatPanel team={session?.user.team ?? "AVATYE"} me={session?.user} />
+          {session && <ChatPanel key={session.user.user_id} me={session.user} />}
         </aside>
       </div>
     </div>

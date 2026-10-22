@@ -178,6 +178,8 @@ def signup(db: Session, ip: str, data: SignupIn) -> User:
         phone=data.phone,
         password_hash=password_hash,
         team=data.team,
+        # 가입 요청에서 검증한 부서/직무를 기존 사용자 정보와 같은 트랜잭션으로 저장한다.
+        position=data.position,
     )
     db.add(user)
     row.signup_token_hash = None  # 일회용

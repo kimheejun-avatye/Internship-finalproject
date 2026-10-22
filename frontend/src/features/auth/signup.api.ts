@@ -21,7 +21,7 @@ export interface SignupPayload {
   birth_date: string;
   phone: string;
   team: Team;
-  // 연결안: 현재 SignupIn에는 수신·저장 처리가 없어 백엔드 계약 확인이 필요하다.
+  // 부서/직무를 하나의 문자열로 보내고, 서버가 필수 검증 후 users.position에 저장한다.
   position: string;
 }
 

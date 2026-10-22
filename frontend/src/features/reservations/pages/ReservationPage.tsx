@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import * as api from "../reservations.api";
-import type { ReservationList, Room, TimeSlot } from "../reservations.types";
-import { MAX_BOOKING_DAYS, MAX_RESERVATION_HOURS, MAX_TITLE_LENGTH, addDays, dateOf, isValidDay, isWeekend, seoulDay, seoulTime } from "../reservation-time";
+import type { CalendarReservation, Room, TimeSlot } from "../reservations.types";
+import { MAX_BOOKING_DAYS, MAX_RESERVATION_HOURS, MAX_TITLE_LENGTH, addDays, boundary, dateOf, isValidDay, isWeekend, seoulDay, seoulTime } from "../reservation-time";
 import { ApiError } from "../../../shared/api/client";
 import TimeSlotPicker, { HOUR_OPTIONS, isAvailableRange, slotTime } from "../components/TimeSlotPicker";
+import ReservationDaySchedule from "../components/ReservationDaySchedule";
 import AttendeePicker from "../components/AttendeePicker";
 import "../reservation.css";
 
@@ -17,13 +18,8 @@ function defaultDate() {
   while (isWeekend(day)) day = addDays(day, 1);
   return day;
 }
-function timeRange(start: string, end: string, today: string) {
-  const startDay = seoulDay(start), endDay = seoulDay(end);
-  if (startDay === today && endDay === today) return `${seoulTime(start)}–${seoulTime(end)}`;
-  return `${startDay} ${seoulTime(start)} – ${endDay} ${seoulTime(end)}`;
-}
 const NO_BUSY: ReadonlySet<string> = new Set();
-type Listing = { roomId: string; page: number; data: ReservationList | null; error: string };
+type Listing = { key: string; data: CalendarReservation[] | null; error: string };
 type Selection = { key: string; startHour: string; endHour: string; endDate: string; otherDate: boolean };
 type Availability = { key: string; status: "loading" | "ready" | "error"; slots: TimeSlot[]; error: string; loaded: number; total: number };
 
@@ -31,6 +27,7 @@ export default function ReservationPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const mounted = useRef(false), submitting = useRef(false);
+  const scheduleSelection = useRef("");
   const [now, setNow] = useState(Date.now);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
@@ -53,11 +50,9 @@ export default function ReservationPage() {
     ?? rooms.find(item => item.status === "ACTIVE");
   const roomId = room?.room_id ?? "";
   const roomBlocked = room?.status === "BLOCK";
-  const requestedPage = Number(params.get("page") ?? "1");
-  const page = Number.isSafeInteger(requestedPage) && requestedPage >= 1 ? requestedPage : 1;
-  const current = listing?.roomId === roomId && listing.page === page ? listing : null;
-  const loading = Boolean(roomId) && (!current || (!current.data && !current.error));
-  const data = current?.data;
+  const scheduleKey = `${roomId}|${date}|${refresh}`;
+  const current = listing?.key === scheduleKey ? listing : null;
+  const loading = Boolean(roomId) && isValidDay(date) && (!current || (!current.data && !current.error));
   const selectionKey = `${roomId}|${date}`;
   const chosen: Selection = selection?.key === selectionKey ? selection : { key: selectionKey, startHour: "", endHour: "", endDate: date, otherDate: false };
   const { startHour, endHour, endDate, otherDate } = chosen;
@@ -103,15 +98,15 @@ export default function ReservationPage() {
     return () => { active = false; };
   }, [roomRetry]);
   useEffect(() => {
-    if (!roomId) return;
-    let active = true;
-    setListing({ roomId, page, data: null, error: "" });
-    api.listReservations(roomId, page).then(
-      values => { if (active) setListing({ roomId, page, data: values, error: "" }); },
-      failure => { if (active) setListing({ roomId, page, data: null, error: errorMessage(failure) }); },
+    if (!roomId || !isValidDay(date)) return;
+    const controller = new AbortController();
+    setListing({ key: scheduleKey, data: null, error: "" });
+    api.getCalendarReservations({ room_id: roomId, start_at: boundary(date), end_at: boundary(addDays(date, 1)), scope: "all" }, controller.signal).then(
+      values => { if (!controller.signal.aborted) setListing({ key: scheduleKey, data: values, error: "" }); },
+      failure => { if (!controller.signal.aborted) setListing({ key: scheduleKey, data: null, error: errorMessage(failure) }); },
     );
-    return () => { active = false; };
-  }, [roomId, page, refresh, today]);
+    return () => controller.abort();
+  }, [roomId, date, scheduleKey]);
   useEffect(() => {
     if (!roomId || roomBlocked || dateError || endDateError) return;
     let active = true, failed = false, nextDay = 0, loaded = 0;
@@ -154,10 +149,10 @@ export default function ReservationPage() {
     }
   }, [currentAvailability, date, dateError, endDate, endDateError, startHour, endHour, otherDate, startAt, selectionKey, slots]);
 
-  function selectPage(selectedRoom: string, selectedPage: number) {
+  function selectRoom(selectedRoom: string) {
     setParams(previous => {
       const next = new URLSearchParams(previous);
-      next.set("room_id", selectedRoom); next.set("page", String(selectedPage)); next.set("date", date);
+      next.set("room_id", selectedRoom); next.delete("page"); next.set("date", date);
       return next;
     }, { replace: true });
   }
@@ -244,7 +239,7 @@ export default function ReservationPage() {
         {rooms.map(item => {
           const off = item.status === "BLOCK", selected = item.room_id === roomId;
           return <button key={item.room_id} type="button" disabled={off || busy} className={`room-card${selected ? " selected" : ""}`} aria-pressed={selected}
-            onClick={() => { selectPage(item.room_id, 1); setError(""); }}>
+            onClick={() => { selectRoom(item.room_id); setError(""); }}>
             <span className="small">회의실</span><strong className="name">{item.name}</strong>
             <span className="spec">수용 인원 {item.capacity}명</span>
             <span className={`status ${off ? "off" : selected ? "picked" : "ok"}`}>{off ? "이용 중지" : selected ? "선택됨" : "운영 중 · 시간 확인 필요"}</span>
@@ -252,23 +247,32 @@ export default function ReservationPage() {
         })}
       </div>
       {!roomsLoading && !roomsError && rooms.length > 0 && !room && <p>현재 이용할 수 있는 회의실이 없습니다.</p>}
-      {room && <section className="reservation-schedule" aria-busy={loading}>
-        <h2>{room.name} · 오늘 남은 일정</h2>
-        <p className="reservation-schedule-description">{today} · 한국 시간 기준 아직 끝나지 않은 예약입니다.</p>
+      {room && <section className="reservation-schedule" aria-busy={loading} aria-labelledby="reservation-day-title">
+        <h2 id="reservation-day-title">{room.name} · 하루 일정</h2>
+        <p className="reservation-schedule-description">{date} · 한국 시간 00:00–24:00 · 빈 시간을 선택하고 이어지는 시간을 클릭하면 최대 4시간까지 늘어납니다.</p>
+        {loading && <p role="status">하루 일정을 불러오는 중입니다.</p>}
+        {current?.error && <div role="alert"><p>{current.error}</p><button type="button" className="reservation-retry" onClick={() => setRefresh(value => value + 1)}>일정 다시 조회</button></div>}
         <div className="reservation-schedule-list">
-          {loading && <p role="status">예약 목록을 불러오는 중입니다.</p>}
-          {current?.error && <div role="alert"><p>{current.error}</p><button type="button" className="reservation-retry" onClick={() => setRefresh(value => value + 1)}>목록 다시 조회</button></div>}
-          {data && data.items.length === 0 && <p className="schedule-empty">{page === 1 ? "오늘 남은 일정이 없습니다." : "이 페이지에 표시할 예약이 없습니다."}</p>}
-          {data?.items.map(item => <div key={item.reservation_id} className="schedule-row">
-            <span className="time">{timeRange(item.start_at, item.end_at, today)}</span>
-            <div><div className="title">{item.title}</div><div className="meta">{item.team} / 참석 {item.participant_count}명{Date.parse(item.start_at) <= now && Date.parse(item.end_at) > now ? " · 진행 중" : ""}</div></div>
-          </div>)}
+          <ReservationDaySchedule date={date} reservations={current?.data ?? []} slots={slots} now={now}
+            disabled={busy || roomBlocked || loading || Boolean(current?.error || dateError || endDateError) || currentAvailability?.status !== "ready"}
+            selectedStart={startAt} selectedEnd={endAt}
+            onSelect={(start, end) => {
+              const fromSchedule = scheduleSelection.current === `${selectionKey}|${startAt}|${endAt}`;
+              const adjacentAfter = fromSchedule && validRange && Date.parse(start) === Date.parse(endAt);
+              const adjacentBefore = fromSchedule && validRange && Date.parse(end) === Date.parse(startAt);
+              const nextStart = adjacentAfter ? startAt : start;
+              const nextEnd = adjacentBefore ? endAt : end;
+              if (adjacentAfter || adjacentBefore) {
+                if (!isAvailableRange(slots, nextStart, nextEnd)) {
+                  setError(`연속된 예약 가능 시간은 최대 ${MAX_RESERVATION_HOURS}시간까지 선택할 수 있습니다.`);
+                  return;
+                }
+              }
+              const nextEndDate = seoulDay(nextEnd);
+              scheduleSelection.current = `${selectionKey}|${nextStart}|${nextEnd}`;
+              changeSelection({ startHour: seoulTime(nextStart), endHour: seoulTime(nextEnd), endDate: nextEndDate, otherDate: nextEndDate !== date });
+            }} />
         </div>
-        {data && data.total > 0 && <nav className="reservation-pagination" aria-label="예약 목록 페이지">
-          <button type="button" disabled={busy || page <= 1} onClick={() => selectPage(roomId, page - 1)}>이전 페이지</button>
-          <span>{page} / {Math.max(1, Math.ceil(data.total / data.page_size))} 페이지, 전체 {data.total}건</span>
-          <button type="button" disabled={busy || page * data.page_size >= data.total} onClick={() => selectPage(roomId, page + 1)}>다음 페이지</button>
-        </nav>}
       </section>}
       {error && <p role="alert" className="book-error">{error}</p>}
       <button type="submit" className="btn reservation-submit" disabled={busy || !room || roomBlocked || roomsLoading || Boolean(roomsError) || availabilityLoading || !validRange || attendeeBusy}>{busy ? "예약 중..." : "예약하기"}</button>
