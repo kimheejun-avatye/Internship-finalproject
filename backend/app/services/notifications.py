@@ -107,7 +107,10 @@ class NotificationService:
         reservation, room_name = row
         user_ids = self.db.scalars(
             select(ReservationAttendee.user_id)
-            .where(ReservationAttendee.reservation_id == reservation_id)
+            .where(
+                ReservationAttendee.reservation_id == reservation_id,
+                ReservationAttendee.user_id != reservation.user_id,
+            )
             .order_by(ReservationAttendee.user_id)
         ).all()
         start = reservation.start_at.astimezone(KST).strftime("%Y-%m-%d %H:%M")
