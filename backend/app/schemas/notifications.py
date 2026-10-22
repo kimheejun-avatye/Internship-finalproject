@@ -14,8 +14,14 @@ class NotificationOut(BaseModel):
     end_at: AwareDatetime
     message: str
     created_at: AwareDatetime
+    read_at: AwareDatetime | None = None
 
 
 class NotificationListOut(BaseModel):
     items: list[NotificationOut]
     retention_limit: int = Field(ge=1)
+
+
+class NotificationReadOut(BaseModel):
+    notification_id: UUID
+    read_at: AwareDatetime

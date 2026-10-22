@@ -240,3 +240,87 @@ def test_notification_list_reports_redis_failure(notification_api, seed):
             assert response.json()["detail"]["code"] == "NOTIFICATION_STORE_UNAVAILABLE"
         finally:
             redis.close()
+
+
+def test_read_notification_survives_relogin_and_keeps_first_read_time(notification_api, notification_data, time):
+    from app.services.notifications import NotificationService
+
+    client, store, _, _ = notification_api
+    rid, _, invited, _ = notification_data
+    with SessionLocal() as db:
+        saved = NotificationService(db, store).create_for_reservation(rid)[invited]
+    assert signin(client, "invited@example.com").status_code == 200
+    assert client.get("/api/notifications").json()["items"][0]["read_at"] is None
+    path = f"/api/notifications/{saved.notification_id}/read"
+    first = client.patch(path, json={})
+    assert first.status_code == 200
+    read_at = first.json()["read_at"]
+    assert datetime.fromisoformat(read_at) == time.value
+    time.advance(minutes=1)
+    assert client.patch(path, json={}).json()["read_at"] == read_at
+    assert client.post("/api/auth/logout", json={}).status_code == 204
+    assert signin(client, "invited@example.com").status_code == 200
+    assert client.get("/api/notifications").json()["items"][0]["read_at"] == read_at
+
+
+def test_read_notification_cannot_access_another_users_notification(notification_api, notification_data):
+    from app.services.notifications import NotificationService
+
+    client, store, redis, prefix = notification_api
+    rid, host, invited, _ = notification_data
+    with SessionLocal() as db:
+        saved = NotificationService(db, store).create_for_reservation(rid)[invited]
+    path = f"/api/notifications/{saved.notification_id}/read"
+    assert client.patch(path, json={}).status_code == 401
+    assert signin(client).status_code == 200
+    assert client.patch(path, json={"user_id": str(invited)}).status_code == 404
+    assert store.list_for_user(invited)[0].read_at is None
+    assert not list(redis.scan_iter(match=prefix + str(host) + "*"))
+
+
+@pytest.mark.parametrize("headers,status", [
+    ({"X-CSRF-Token": ""}, 403),
+    ({"Origin": "https://other.example"}, 403),
+    ({"Content-Type": "text/plain"}, 415),
+])
+def test_read_notification_checks_csrf_origin_and_json(notification_api, seed, headers, status):
+    client, _, _, _ = notification_api
+    seed()
+    assert signin(client).status_code == 200
+    assert client.patch(f"/api/notifications/{uuid4()}/read", json={}, headers=headers).status_code == status
+
+
+def test_read_state_is_removed_when_notification_is_trimmed(notification_store):
+    from app.schemas.notifications import NotificationOut
+
+    store, redis, prefix = notification_store
+    uid = uuid4()
+    ids = [uuid4() for _ in range(3)]
+    for index, nid in enumerate(ids):
+        store.save(uid, NotificationOut(
+            notification_id=nid, reservation_id=uuid4(), title="회의", room_name="A", message="참석 안내",
+            start_at="2026-10-23T01:00:00Z", end_at="2026-10-23T02:00:00Z", created_at="2026-10-22T01:00:00Z",
+        ))
+        if index == 0:
+            store.mark_read(uid, nid)
+    with pytest.raises(ApiError) as error:
+        store.mark_read(uid, ids[0])
+    assert error.value.status_code == 404
+    assert [item.read_at for item in store.list_for_user(uid)] == [None, None]
+    hashes = [key for key in redis.scan_iter(match=prefix + "*") if redis.type(key) == "hash"]
+    assert all(str(ids[0]) not in redis.hkeys(key) for key in hashes)
+
+
+def test_concurrent_reads_keep_one_read_time(notification_store):
+    from app.schemas.notifications import NotificationOut
+
+    store, _, _ = notification_store
+    uid, nid = uuid4(), uuid4()
+    store.save(uid, NotificationOut(
+        notification_id=nid, reservation_id=uuid4(), title="회의", room_name="A", message="참석 안내",
+        start_at="2026-10-23T01:00:00Z", end_at="2026-10-23T02:00:00Z", created_at="2026-10-22T01:00:00Z",
+    ))
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda _: store.mark_read(uid, nid).read_at, range(8)))
+    assert len(set(results)) == 1
+    assert store.list_for_user(uid)[0].read_at == results[0]

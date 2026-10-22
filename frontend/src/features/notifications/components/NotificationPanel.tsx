@@ -74,7 +74,7 @@ export default function NotificationPanel({ id, anchorRef, onNavigate }: { id: s
         const crossDay = seoulDay(notification.start_at) !== seoulDay(notification.end_at);
         return <li key={notification.notification_id}>
           <Link className={`notification-card${notification.read_at ? " is-read" : ""}`} to={calendarLink(notification)} onClick={() => {
-            // 상세 조회 없이 수신 데이터로 이동하며, 읽음은 현재 접속의 메모리 상태에만 반영한다.
+            // 예약 화면으로 이동하고 읽음 상태는 서버에 저장한다.
             markRead(notification.notification_id);
             onNavigate();
           }}>
@@ -88,6 +88,6 @@ export default function NotificationPanel({ id, anchorRef, onNavigate }: { id: s
         </li>;
       })}
     </ul>}
-    <p className="notification-session-note" id={`${id}-scope`}>이번 접속에서 받은 알림 · 한국 시간 기준</p>
+    <p className="notification-session-note" id={`${id}-scope`}>저장된 회의 알림, 한국 시간 기준</p>
   </section>;
 }

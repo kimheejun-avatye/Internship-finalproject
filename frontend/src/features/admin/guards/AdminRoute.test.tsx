@@ -18,7 +18,7 @@ function mockApi(role: "ADMIN" | "MEMBER") {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string) =>
-      new Response(JSON.stringify(path.startsWith("/api/admin/") ? [] : sessionOf(role)), { status: 200 }),
+      new Response(JSON.stringify(path === "/api/notifications" ? { items: [], retention_limit: 100 } : path.startsWith("/api/admin/") ? [] : sessionOf(role)), { status: 200 }),
     ),
   );
 }
