@@ -90,3 +90,7 @@
 }
 
 .attendee-picker-option.busy { opacity: 0.55; cursor: not-allowed; }
+
+.reservation-share-option { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text); }
+.reservation-share-option input { accent-color: var(--primary); width: 15px; height: 15px; }
+.reservation-share-option input:disabled + * { opacity: 0.5; }

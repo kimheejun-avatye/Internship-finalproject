@@ -17,6 +17,13 @@ function defaultDate() {
   while (isWeekend(day)) day = addDays(day, 1);
   return day;
 }
+// 예약 저장 뒤 참석자 공유 결과를 한 문장으로 알려 준다. 예약 자체는 이미 저장된 상태다.
+function savedMessage(share: { sent: number; failed: number } | "error" | null) {
+  if (share === null) return "예약이 저장되었습니다.";
+  if (share === "error") return "예약이 저장되었습니다. 참석자에게 채팅으로 공유하지 못했습니다.";
+  if (share.failed === 0) return `예약이 저장되었습니다. 참석자 ${share.sent}명에게 채팅으로 공유했습니다.`;
+  return `예약이 저장되었습니다. ${share.sent}명에게 공유했고 ${share.failed}명에게는 보내지 못했습니다.`;
+}
 function timeRange(start: string, end: string, today: string) {
   const startDay = seoulDay(start), endDay = seoulDay(end);
   if (startDay === today && endDay === today) return `${seoulTime(start)}–${seoulTime(end)}`;
@@ -43,6 +50,7 @@ export default function ReservationPage() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [title, setTitle] = useState("");
   const [attendees, setAttendees] = useState<string[]>([]);
+  const [shareToChat, setShareToChat] = useState(false);
   const [busyUsers, setBusyUsers] = useState<{ key: string; ids: ReadonlySet<string> } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -186,9 +194,16 @@ export default function ReservationPage() {
     if (!validRange || currentAvailability?.status !== "ready") return setError("선택한 구간에 예약할 수 없는 시간이 있습니다. 가능한 연속 시간을 선택해 주세요.");
     submitting.current = true; setBusy(true);
     try {
-      await api.createReservation({ room_id: roomId, title: title.trim(), start_at: startAt, end_at: endAt, attendee_ids: [...new Set(attendees)] });
+      const created = await api.createReservation({ room_id: roomId, title: title.trim(), start_at: startAt, end_at: endAt, attendee_ids: [...new Set(attendees)] });
+      // 공유 실패는 예약 저장을 되돌리지 않는다. 결과만 알려 준다.
+      let share: { sent: number; failed: number } | "error" | null = null;
+      if (shareToChat && attendees.length > 0) {
+        share = await api.shareReservation(created.reservation_id)
+          .then(result => ({ sent: result.sent_user_ids.length, failed: result.failed_user_ids.length }))
+          .catch((): "error" => "error");
+      }
       if (!mounted.current) return;
-      navigate(`/calendar?${new URLSearchParams({ date, view: "week", room_id: roomId })}`, { state: { reservationCreated: true, message: "예약이 저장되었습니다." } });
+      navigate(`/calendar?${new URLSearchParams({ date, view: "week", room_id: roomId })}`, { state: { reservationCreated: true, message: savedMessage(share) } });
     } catch (failure) {
       if (!mounted.current) return;
       setError(errorMessage(failure));
@@ -219,6 +234,10 @@ export default function ReservationPage() {
               : { startHour: hour, endHour: "" })}
             onEndChange={hour => changeSelection({ endHour: hour })} />
           <AttendeePicker selected={attendees} onChange={setAttendees} capacity={room?.capacity} disabled={busy} busyIds={busyIds} />
+          <label className="reservation-share-option">
+            <input type="checkbox" checked={shareToChat && attendees.length > 0} disabled={busy || attendees.length === 0}
+              onChange={event => setShareToChat(event.target.checked)} />저장 후 참석자에게 채팅으로 일정 공유
+          </label>
         </div>
         <div className="reservation-date-options">
           <label className="reservation-cross-day"><input type="checkbox" checked={otherDate} disabled={busy || !isValidDay(date)}

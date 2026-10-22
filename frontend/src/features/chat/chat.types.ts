@@ -3,9 +3,13 @@ import type { SelectableUser } from "../../shared/api/users";
 export type Team = SelectableUser["team"];
 // HTTP DTOs remain independent from preview-only presentation metadata.
 export interface ChatUserDto { user_id: string; name: string }
+// 서버가 보낸 예약 카드의 데이터. 카드를 보낸 시점의 예약 정보다.
+export interface ReservationCardDto { reservation_id: string; title: string; start_at: string; end_at: string; room_name: string }
 export interface MessageDto {
   message_id: string; chat_room_id: string; user_id: string; sender: ChatUserDto;
-  message: string; created_at: string; client_id: string | null;
+  // kind 가 RESERVATION 이면 payload 에 카드 데이터가 있다. message 에는 같은 내용의 글이 들어 있다
+  message: string; kind?: "TEXT" | "RESERVATION"; payload?: ReservationCardDto | null;
+  created_at: string; client_id: string | null;
 }
 export interface RoomSummaryDto {
   chat_room_id: string; type: "DIRECT" | "GROUP"; title: string | null;

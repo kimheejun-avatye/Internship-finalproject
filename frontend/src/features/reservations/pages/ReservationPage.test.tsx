@@ -8,7 +8,7 @@ import type { Room, ReservationItem, ReservationList, CreatedReservation } from 
 import { ApiError } from "../../../shared/api/client";
 
 vi.mock("../reservations.api", () => ({
-  listRooms: vi.fn(), listReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(), getBusyUsers: vi.fn(),
+  listRooms: vi.fn(), listReservations: vi.fn(), createReservation: vi.fn(), getAvailability: vi.fn(), getBusyUsers: vi.fn(), shareReservation: vi.fn(),
 }));
 vi.mock("../../../shared/hooks/useSelectableUsers", () => ({
   useSelectableUsers: () => ({
@@ -42,6 +42,7 @@ beforeEach(() => {
   }));
   vi.mocked(api.listReservations).mockResolvedValue(empty);
   vi.mocked(api.getBusyUsers).mockResolvedValue({ user_ids: [] });
+  vi.mocked(api.shareReservation).mockResolvedValue({ sent_user_ids: ['busy-user'], failed_user_ids: [] });
   vi.mocked(api.createReservation).mockResolvedValue({
     ...item, created_at: "2026-10-19T20:30:00+09:00",
   });
@@ -226,4 +227,47 @@ it("shows hours blocked by my other meetings as unavailable", async () => {
   await screen.findByRole("heading", { name: "DB 회의실 A · 오늘 남은 일정" });
   const option = await screen.findByRole("option", { name: "21:00 · 내 다른 회의" });
   expect(option).toBeDisabled();
+});
+
+
+async function reserveWithAttendee(share: boolean) {
+  renderPage();
+  await fillForm();
+  await userEvent.click(screen.getByRole("button", { name: /참석자.*선택/ }));
+  await userEvent.click(await screen.findByRole("checkbox", { name: /김바쁨/ }));
+  await userEvent.click(screen.getByRole("button", { name: "닫기" }));
+  if (share) await userEvent.click(screen.getByRole("checkbox", { name: /채팅으로 일정 공유/ }));
+  await userEvent.click(screen.getByRole("button", { name: "예약하기" }));
+}
+
+it("shares the saved reservation to attendees by chat only when the host asks", async () => {
+  await reserveWithAttendee(true);
+  expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
+  expect(api.shareReservation).toHaveBeenCalledWith("saved-id");
+  expect(screen.getByRole("status")).toHaveTextContent("예약이 저장되었습니다. 참석자 1명에게 채팅으로 공유했습니다.");
+});
+
+it("does not share when the option is off", async () => {
+  await reserveWithAttendee(false);
+  expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
+  expect(api.shareReservation).not.toHaveBeenCalled();
+  expect(screen.getByRole("status")).toHaveTextContent("예약이 저장되었습니다.");
+});
+
+it("keeps the saved reservation and reports it when sharing fails or partly fails", async () => {
+  vi.mocked(api.shareReservation).mockRejectedValueOnce(new ApiError(500, "ERROR", "실패"));
+  await reserveWithAttendee(true);
+  expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("예약이 저장되었습니다. 참석자에게 채팅으로 공유하지 못했습니다.");
+  cleanup();
+  vi.mocked(api.shareReservation).mockResolvedValueOnce({ sent_user_ids: ["a"], failed_user_ids: ["b"] });
+  await reserveWithAttendee(true);
+  expect(await screen.findByRole("heading", { name: "캘린더 화면" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("1명에게 공유했고 1명에게는 보내지 못했습니다.");
+});
+
+it("offers the share option only after attendees are chosen", async () => {
+  renderPage();
+  await fillForm();
+  expect(screen.getByRole("checkbox", { name: /채팅으로 일정 공유/ })).toBeDisabled();
 });
