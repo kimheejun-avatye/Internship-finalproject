@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
@@ -11,6 +11,16 @@ class ChatUserOut(BaseModel):
     name: str
 
 
+class ReservationCardOut(BaseModel):
+    """예약 카드 메시지에 담긴, 보낸 시점의 예약 정보."""
+
+    reservation_id: uuid.UUID
+    title: str
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    room_name: str
+
+
 class MessageOut(BaseModel):
     message_id: uuid.UUID
     chat_room_id: uuid.UUID
@@ -18,6 +28,9 @@ class MessageOut(BaseModel):
     user_id: uuid.UUID
     sender: ChatUserOut
     message: str
+    # RESERVATION 이면 payload 에 예약 카드 데이터가 있다. message 에는 같은 내용의 글이 들어 있다
+    kind: Literal["TEXT", "RESERVATION"] = "TEXT"
+    payload: Optional[ReservationCardOut] = None
     created_at: AwareDatetime
     # 전송 요청의 client_id 를 그대로 돌려준다. 과거 조회에서는 None
     client_id: Optional[str] = None

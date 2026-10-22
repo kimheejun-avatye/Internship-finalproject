@@ -45,6 +45,7 @@ export interface CreatedReservation {
 }
 
 export interface BusyUsers { user_ids: string[] }
+export interface ShareResult { sent_user_ids: string[]; failed_user_ids: string[] }
 
 export interface TimeSlot {
   start_at: string;

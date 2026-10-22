@@ -22,6 +22,7 @@ from app.schemas.reservations import (
     ReservationCreateOut,
     ReservationListOut,
     ReservationListQuery,
+    ReservationShareOut,
     TimeSlotOut,
 )
 from app.schemas.rooms import RoomOut
@@ -52,6 +53,10 @@ class ReservationController:
     ) -> list[TimeSlotOut]:
         """GET /rooms/{room_id}/availability. 계산은 서비스에 위임한다."""
         return self.service.get_room_availability(query, current_user.user_id)
+
+    # 예약 일정 공유: 예약자가 참석자에게 채팅으로 보낸다.
+    def share_reservation(self, reservation_id: UUID, current_user: User) -> ReservationShareOut:
+        return self.service.share_reservation(reservation_id, current_user)
 
     # 시간대별 일정 있는 사람 조회: 참석자 선택 화면에서 선택 불가 표시에 쓴다.
     def get_busy_users(self, query: BusyUsersQuery, current_user: User) -> BusyUsersOut:
@@ -182,6 +187,16 @@ def get_calendar_rooms(
 ):
     response.headers["Cache-Control"] = "no-store"
     return controller.get_calendar_rooms(identity[0])
+
+
+# 예약자가 참석자마다 1:1 채팅방으로 예약 안내를 보낸다.
+@router.post("/reservations/{reservation_id}/share", response_model=ReservationShareOut)
+def share_reservation(
+    reservation_id: UUID,
+    identity=Depends(authenticated, scope="function"),
+    controller: ReservationController = Depends(get_reservation_controller),
+):
+    return controller.share_reservation(reservation_id, identity[0])
 
 
 # 구간에 다른 회의가 있는 사용자 id 목록. 참석자 선택 화면이 선택 불가 표시에 쓴다.

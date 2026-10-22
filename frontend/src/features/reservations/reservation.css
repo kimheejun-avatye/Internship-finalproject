@@ -110,3 +110,6 @@
 .reservation-schedule-description { font-size: 12px; line-height: 1.6; }
 @media (max-width: 1200px) { .reservation-hour-row { grid-template-columns: 112px minmax(0, 1fr) auto; gap: 10px; } }
 @media (max-width: 600px) { .reservation-hour-row { grid-template-columns: 100px minmax(0, 1fr); } .reservation-hour-status { grid-column: 2; } }
+.reservation-share-option { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text); }
+.reservation-share-option input { accent-color: var(--primary); width: 15px; height: 15px; }
+.reservation-share-option input:disabled + * { opacity: 0.5; }

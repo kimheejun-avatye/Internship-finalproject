@@ -48,6 +48,12 @@ class Settings:
         # 관리자가 회의실을 차단하면 이 시간 동안 이용할 수 없다
         self.room_block_minutes = _int("ROOM_BLOCK_MINUTES", 60)
 
+        self.redis_host = os.environ.get("REDIS_HOST", "127.0.0.1")
+        self.redis_port = _int("REDIS_PORT", 6379)
+        self.redis_password = os.environ.get("REDIS_PASSWORD") or None
+        self.redis_db = _int("REDIS_DB", 0)
+        self.notification_retention_limit = _int("NOTIFICATION_RETENTION_LIMIT", 100)
+
     @property
     def database_url(self) -> URL:
         if os.environ.get("DATABASE_URL"):
