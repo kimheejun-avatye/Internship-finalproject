@@ -24,7 +24,7 @@ export function createMockChat(team: Team): ChatData {
       roomById(roomId);
       publish({ screen: { kind: "conversation", roomId, origin }, rooms: state.rooms.map(r => r.chat_room_id === roomId ? { ...r, presentation: { ...r.presentation, unreadCount: 0 } } : r) });
     },
-    createRoom: (memberIds, rawTitle = "") => {
+    createRoom: async (memberIds, rawTitle = "") => {
       const uniqueIds = [...new Set(memberIds)];
       if (!uniqueIds.length) throw new Error("대화할 친구를 선택해 주세요.");
       const members = uniqueIds.map(id => state.users.find(u => u.user_id === id));
@@ -48,7 +48,7 @@ export function createMockChat(team: Team): ChatData {
       return id;
     },
     setDraft: (roomId, value) => { roomById(roomId); publish({ drafts: { ...state.drafts, [roomId]: value } }); },
-    sendMessage: (roomId, rawText) => {
+    sendMessage: async (roomId, rawText) => {
       roomById(roomId);
       const message = rawText.trim();
       if (!message || Array.from(message).length > 2000) throw new Error("메시지는 앞뒤 공백을 제거한 뒤 1~2,000자로 입력해 주세요.");

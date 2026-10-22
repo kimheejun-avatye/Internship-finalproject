@@ -14,6 +14,6 @@ export default function MessageBubble({ message, own, group }: { message: ChatMe
       {!own && <p className="chat-message-sender">{message.sender.name}</p>}
       {message.presentation?.reservation ? <ReservationMessageCard reservation={message.presentation.reservation} /> : <p className="chat-message-bubble">{message.message}</p>}
     </div>
-    <div className="chat-message-meta">{own && reads !== undefined && <span>{group ? reads + "명 확인" : reads ? "읽음" : "안 읽음"}</span>}<time dateTime={message.created_at}>{formatChatTime(message.created_at)}</time></div>
+    <div className="chat-message-meta">{message.presentation?.pending ? <span>전송 중</span> : <>{own && reads !== undefined && <span>{group ? reads + "명 확인" : reads ? "읽음" : "안 읽음"}</span>}<time dateTime={message.created_at}>{formatChatTime(message.created_at)}</time></>}</div>
   </div>;
 }

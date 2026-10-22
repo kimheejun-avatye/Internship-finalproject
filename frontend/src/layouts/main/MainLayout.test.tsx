@@ -15,6 +15,7 @@ const session = {
 
 function pageResponse(path: string) {
   if (path.startsWith("/api/users/search?")) return new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 });
+  if (path.startsWith("/api/chat/rooms?")) return new Response(JSON.stringify({ items: [], next_cursor: null }), { status: 200 });
   if (path === "/api/auth/me") return new Response(JSON.stringify(session), { status: 200 });
   if (path === "/api/calendar/rooms" || path.startsWith("/api/calendar/reservations?") || path === "/api/rooms") {
     return new Response(JSON.stringify([]), { status: 200 });
