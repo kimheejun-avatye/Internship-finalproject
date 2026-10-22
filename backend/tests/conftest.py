@@ -106,3 +106,41 @@ def mails(monkeypatch):
         mailer, "send_email", lambda to, subject, body: messages.append((to, body))
     )
     return messages
+
+
+@pytest.fixture
+def notification_store():
+    url = os.environ.get("TEST_REDIS_URL")
+    if not url:
+        pytest.skip("Set TEST_REDIS_URL to run Redis integration tests")
+    from uuid import uuid4
+
+    from redis import Redis
+
+    from app.services.notifications import NotificationStore
+
+    client = Redis.from_url(url, decode_responses=True)
+    prefix = f"test:notifications:{uuid4()}:"
+    store = NotificationStore(client, key_prefix=prefix, retention_limit=2)
+    try:
+        yield store, client, prefix
+    finally:
+        keys = list(client.scan_iter(match=prefix + "*"))
+        if keys:
+            client.delete(*keys)
+        client.close()
+
+
+@pytest.fixture(autouse=True)
+def reservation_notification_storage(monkeypatch, request):
+    from app.services import notifications
+
+    if not os.environ.get("TEST_REDIS_URL"):
+        # PostgreSQL만 지정한 테스트가 개발 Redis에 알림을 쓰지 않도록 한다.
+        def unavailable_store():
+            raise RuntimeError("Set TEST_REDIS_URL to enable reservation notifications in tests")
+
+        monkeypatch.setattr(notifications, "get_notification_store", unavailable_store)
+        return
+    store, _, _ = request.getfixturevalue("notification_store")
+    monkeypatch.setattr(notifications, "get_notification_store", lambda: store)

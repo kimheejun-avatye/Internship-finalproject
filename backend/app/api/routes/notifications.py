@@ -2,13 +2,9 @@ from fastapi import APIRouter, Depends, Response
 
 from app.api.dependencies import authenticated
 from app.schemas.notifications import NotificationListOut
-from app.services.notifications import NotificationStore
+from app.services.notifications import NotificationStore, get_notification_store
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
-
-
-def get_notification_store() -> NotificationStore:
-    return NotificationStore()
 
 
 @router.get("", response_model=NotificationListOut)

@@ -1,7 +1,6 @@
 """실제 PostgreSQL과 별도 Redis 키로 알림 저장을 검증한다."""
 
 import json
-import os
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -18,25 +17,6 @@ from app.models.chat_memo import Memo
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room
-
-
-@pytest.fixture
-def notification_store():
-    url = os.environ.get("TEST_REDIS_URL")
-    if not url:
-        pytest.skip("Set TEST_REDIS_URL to run Redis integration tests")
-    from app.services.notifications import NotificationStore
-
-    client = Redis.from_url(url, decode_responses=True)
-    prefix = f"test:notifications:{uuid4()}:"
-    store = NotificationStore(client, key_prefix=prefix, retention_limit=2)
-    try:
-        yield store, client, prefix
-    finally:
-        keys = list(client.scan_iter(match=prefix + "*"))
-        if keys:
-            client.delete(*keys)
-        client.close()
 
 
 @pytest.fixture
