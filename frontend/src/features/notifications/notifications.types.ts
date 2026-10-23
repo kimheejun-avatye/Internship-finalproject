@@ -1,6 +1,6 @@
 export interface ReservationInvitationNotification {
   notification_id: string;
-  type: "RESERVATION_INVITED";
+  type: "reservation.created";
   reservation_id: string;
   title: string;
   room_name: string;

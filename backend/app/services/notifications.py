@@ -1,6 +1,7 @@
 """저장된 예약의 참여자별 참석 알림을 생성하고 Redis에 보관한다."""
 
 import logging
+from datetime import datetime
 from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
@@ -16,7 +17,7 @@ from app.db.session import SessionLocal
 from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room
-from app.schemas.notifications import NotificationOut
+from app.schemas.notifications import NotificationOut, NotificationReadOut
 from app.services import clock
 from app.services.realtime import event, publish_to_users
 
@@ -33,8 +34,23 @@ for _, item in ipairs(items) do
     end
 end
 redis.call('LPUSH', KEYS[1], ARGV[2])
+local removed = redis.call('LRANGE', KEYS[1], tonumber(ARGV[3]), -1)
+for _, item in ipairs(removed) do
+    redis.call('HDEL', KEYS[2], cjson.decode(item).notification_id)
+end
 redis.call('LTRIM', KEYS[1], 0, tonumber(ARGV[3]) - 1)
 return 1
+"""
+
+MARK_NOTIFICATION_READ = """
+local items = redis.call('LRANGE', KEYS[1], 0, -1)
+for _, item in ipairs(items) do
+    if cjson.decode(item).notification_id == ARGV[1] then
+        redis.call('HSETNX', KEYS[2], ARGV[1], ARGV[2])
+        return redis.call('HGET', KEYS[2], ARGV[1])
+    end
+end
+return false
 """
 
 
@@ -59,8 +75,9 @@ class NotificationStore:
         try:
             return bool(self.client.eval(
                 SAVE_NOTIFICATION,
-                1,
+                2,
                 self.key_prefix + str(user_id),
+                self.key_prefix + str(user_id) + ":reads",
                 str(notification.notification_id),
                 notification.model_dump_json(),
                 self.retention_limit,
@@ -73,17 +90,41 @@ class NotificationStore:
     def list_for_user(self, user_id: UUID) -> list[NotificationOut]:
         """해당 사용자의 보관 중인 알림을 삭제 없이 최신순으로 조회한다."""
         try:
-            rows = self.client.lrange(self.key_prefix + str(user_id), 0, -1)
+            with self.client.pipeline() as pipeline:
+                pipeline.lrange(self.key_prefix + str(user_id), 0, -1)
+                pipeline.hgetall(self.key_prefix + str(user_id) + ":reads")
+                rows, reads = pipeline.execute()
         except RedisError as exc:
             raise ApiError(
                 503, "NOTIFICATION_STORE_UNAVAILABLE", "알림을 조회하지 못했습니다."
             ) from exc
         items = [NotificationOut.model_validate_json(row) for row in rows]
+        for item in items:
+            read_at = reads.get(str(item.notification_id))
+            if read_at is not None:
+                item.read_at = datetime.fromisoformat(read_at)
         return sorted(
             items,
             key=lambda item: (item.created_at, item.notification_id),
             reverse=True,
         )
+
+    def mark_read(self, user_id: UUID, notification_id: UUID) -> NotificationReadOut:
+        """본인이 보관 중인 알림의 최초 읽음 시각을 저장한다."""
+        try:
+            read_at = self.client.eval(
+                MARK_NOTIFICATION_READ, 2,
+                self.key_prefix + str(user_id),
+                self.key_prefix + str(user_id) + ":reads",
+                str(notification_id), clock.now().isoformat(),
+            )
+        except RedisError as exc:
+            raise ApiError(
+                503, "NOTIFICATION_STORE_UNAVAILABLE", "알림의 읽음 상태를 저장하지 못했습니다."
+            ) from exc
+        if read_at is None:
+            raise ApiError(404, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다.")
+        return NotificationReadOut(notification_id=notification_id, read_at=read_at)
 
 
 def get_notification_store() -> NotificationStore:

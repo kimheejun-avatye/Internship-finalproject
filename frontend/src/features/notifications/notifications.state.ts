@@ -23,27 +23,29 @@ function isTimestamp(value: unknown): value is string {
 export function readNotificationEvent(event: unknown): ReservationInvitationNotification | null {
   // 공통 연결에는 채팅 이벤트도 섞여 들어오므로 알림 종류와 필수 데이터만 골라 처리한다.
   if (!isRecord(event) || event.type !== "notification.created" || !isRecord(event.data)) return null;
-  const data = event.data;
-  if (data.type !== "RESERVATION_INVITED"
+  return readNotificationData(event.data);
+}
+
+export function readNotificationData(data: unknown): ReservationInvitationNotification | null {
+  if (!isRecord(data) || data.type !== "reservation.created"
     || typeof data.notification_id !== "string" || !UUID.test(data.notification_id)
     || typeof data.reservation_id !== "string" || !UUID.test(data.reservation_id)
     || typeof data.title !== "string" || !data.title.trim()
     || typeof data.room_name !== "string" || !data.room_name.trim()
     || !isTimestamp(data.start_at) || !isTimestamp(data.end_at) || !isTimestamp(data.created_at)
-    || data.read_at !== null && !isTimestamp(data.read_at)
+    || data.read_at != null && !isTimestamp(data.read_at)
     || Date.parse(data.end_at) <= Date.parse(data.start_at)) return null;
 
-  // 표시 정보는 이벤트에 이미 있으므로 목록·예약 상세 API 없이 바로 사용할 수 있다.
   return {
     notification_id: data.notification_id.toLowerCase(),
-    type: "RESERVATION_INVITED",
+    type: "reservation.created",
     reservation_id: data.reservation_id.toLowerCase(),
     title: data.title.trim(),
     room_name: data.room_name.trim(),
     start_at: data.start_at,
     end_at: data.end_at,
     created_at: data.created_at,
-    read_at: data.read_at,
+    read_at: data.read_at ?? null,
   };
 }
 
@@ -58,5 +60,5 @@ export function mergeNotification(
     ? current.map(item => item.notification_id === incoming.notification_id ? merged : item)
     : [...current, merged];
   return next.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)
-    || a.notification_id.localeCompare(b.notification_id));
+    || b.notification_id.localeCompare(a.notification_id));
 }

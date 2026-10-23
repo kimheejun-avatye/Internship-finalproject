@@ -10,6 +10,7 @@ const session = { user: { user_id: "u1", email: "member@example.com", name: "회
 const room = { room_id: "0a01e4aa-c032-47f8-8751-1a29b069fa0a", name: "로그인 확인 회의실", status: "ACTIVE", capacity: 6 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 function calendarResponse(path: string): Response {
+  if (path === "/api/notifications") return json({ items: [], retention_limit: 100 });
   if (path === "/api/calendar/rooms") return json([room]);
   if (path.startsWith("/api/calendar/reservations?")) return json([]);
   if (path.startsWith("/api/users/search?")) return json({ items: [], next_cursor: null });
@@ -88,6 +89,7 @@ it("keeps the selected room and date while StrictMode restores the session", asy
   const checks: ((response: Response) => void)[] = [];
   const fetch = vi.fn((path: string) => {
     if (path === "/api/auth/me") return new Promise<Response>(resolve => checks.push(resolve));
+    if (path === "/api/notifications") return Promise.resolve(json({ items: [], retention_limit: 100 }));
     if (path === "/api/rooms") return Promise.resolve(new Response(JSON.stringify([
       { room_id: "room-a", name: "회의실 A", status: "ACTIVE", capacity: 6 },
       { room_id: "room-b", name: "회의실 B", status: "ACTIVE", capacity: 10 },
