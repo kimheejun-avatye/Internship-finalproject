@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { CaptchaModal } from "@captchavatye/react";
+import type { CompletionResult } from "@captchavatye/react";
 import * as api from "../../shared/api/reservations";
 import { ApiError } from "../../shared/api/client";
 
@@ -30,9 +32,13 @@ function timeLabel(value: string): string {
 }
 
 type Listing = { roomId: string; page: number; data: api.ReservationList | null; error: string };
+type BookingAttempt = { draft: api.CreateReservation; attempt: api.CaptchaAttempt; submitted?: boolean };
 
 export default function ReservationPage() {
   const mounted = useRef(false);
+  const busyRef = useRef(false);
+  const attemptRef = useRef<BookingAttempt | null>(null);
+  const completionRef = useRef<CompletionResult | null>(null);
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -52,6 +58,8 @@ export default function ReservationPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [bookingAttempt, setBookingAttempt] = useState<BookingAttempt | null>(null);
+  const [captchaOpen, setCaptchaOpen] = useState(false);
 
   const today = inSeoul(new Date(Date.now())).slice(0, 10);
   const room = rooms.find(item => item.room_id === params.get("room_id") && item.status === "ACTIVE")
@@ -97,12 +105,19 @@ export default function ReservationPage() {
 
   async function book(event: FormEvent) {
     event.preventDefault();
-    if (busy || !roomId) return;
+    if (busyRef.current || captchaOpen || !roomId) return;
     setError("");
     setSuccess("");
-    if (!title.trim()) return setError("회의 제목을 입력해 주세요.");
     const startAt = start + ":00+09:00";
     const endAt = end + ":00+09:00";
+    const draft: api.CreateReservation = { room_id: roomId, title: title.trim(), start_at: startAt, end_at: endAt };
+    const current = attemptRef.current;
+    if (current?.submitted && JSON.stringify(current.draft) === JSON.stringify(draft)
+        && completionRef.current) {
+      await continueBooking();
+      return;
+    }
+    if (!draft.title) return setError("회의 제목을 입력해 주세요.");
     const startTime = new Date(startAt).getTime();
     const endTime = new Date(endAt).getTime();
     if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) {
@@ -111,20 +126,78 @@ export default function ReservationPage() {
     if (endTime <= startTime) return setError("종료 시간은 시작 시간보다 늦어야 합니다.");
     if (startTime < Date.now()) return setError("시작 시각은 과거일 수 없습니다.");
 
+    busyRef.current = true;
     setBusy(true);
     try {
-      await api.createReservation({ room_id: roomId, title: title.trim(), start_at: startAt, end_at: endAt });
-      if (!mounted.current) return;
-      setTitle("");
-      setSuccess(start.slice(0, 10) === today
-        ? "예약이 저장되었습니다."
-        : `예약이 저장되었습니다. ${start.slice(0, 10)} 예약은 해당 날짜의 오늘 목록에서 확인할 수 있습니다.`);
-      setListing(null);
-      selectPage(roomId, 1);
-      setRefresh(value => value + 1);
+      let current = attemptRef.current;
+      if (!current || JSON.stringify(current.draft) !== JSON.stringify(draft)
+          || Date.parse(current.attempt.expires_at) <= Date.now()) {
+        current = { draft, attempt: await api.prepareReservationCaptcha(draft) };
+        if (!Number.isFinite(Date.parse(current.attempt.expires_at)) || Date.parse(current.attempt.expires_at) <= Date.now()) {
+          throw new Error("인증 시간이 만료되었습니다. 다시 시도해 주세요.");
+        }
+        if (!mounted.current) return;
+        attemptRef.current = current;
+        completionRef.current = null;
+        setBookingAttempt(current);
+      }
+      if (mounted.current) setCaptchaOpen(true);
     } catch (failure) {
       if (mounted.current) setError(errorMessage(failure));
     } finally {
+      busyRef.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+
+  async function continueBooking() {
+    const current = attemptRef.current;
+    const completion = completionRef.current;
+    if (busyRef.current || !current || !completion) return;
+    if (!current.submitted && Date.parse(current.attempt.expires_at) <= Date.now()) {
+      attemptRef.current = null;
+      completionRef.current = null;
+      setBookingAttempt(null);
+      setCaptchaOpen(false);
+      setError("인증 시간이 만료되었습니다. 예약하기를 눌러 다시 인증해 주세요.");
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    setCaptchaOpen(false);
+    setError("");
+    const submitted = { ...current, submitted: true };
+    attemptRef.current = submitted;
+    setBookingAttempt(submitted);
+    try {
+      await api.createReservation(current.draft,
+        api.reservationCaptchaProof(current.attempt, completion));
+      if (!mounted.current) return;
+      attemptRef.current = null;
+      completionRef.current = null;
+      setBookingAttempt(null);
+      setTitle("");
+      setSuccess(current.draft.start_at.slice(0, 10) === today
+        ? "예약이 저장되었습니다."
+        : `예약이 저장되었습니다. ${current.draft.start_at.slice(0, 10)} 예약은 해당 날짜의 오늘 목록에서 확인할 수 있습니다.`);
+      setListing(null);
+      selectPage(current.draft.room_id, 1);
+      setRefresh(value => value + 1);
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500) {
+        if (failure.code === "CAPTCHA_EXPIRED" || failure.status === 422) {
+          attemptRef.current = null;
+          completionRef.current = null;
+          if (mounted.current) setBookingAttempt(null);
+        } else {
+          const rejected = { ...current, submitted: false };
+          attemptRef.current = rejected;
+          if (mounted.current) setBookingAttempt(rejected);
+        }
+      }
+      if (mounted.current) setError(errorMessage(failure));
+    } finally {
+      busyRef.current = false;
       if (mounted.current) setBusy(false);
     }
   }
@@ -155,7 +228,7 @@ export default function ReservationPage() {
         {rooms.map((item, index) => {
           const off = item.status === "BLOCK";
           const selected = item.room_id === roomId;
-          return <button key={item.room_id} type="button" disabled={off || busy}
+          return <button key={item.room_id} type="button" disabled={off || busy || captchaOpen}
             className={`room-card${selected ? " selected" : ""}`}
             aria-pressed={selected}
             onClick={() => { selectPage(item.room_id, 1); setError(""); setSuccess(""); }}>
@@ -196,23 +269,40 @@ export default function ReservationPage() {
         {/* TODO: 날짜 선택 + 가능 시간 슬롯 버튼. 클릭하면 setStart/setEnd로 아래 입력칸을 채운다. */}
         <form className="book-form" onSubmit={book}>
           <label>시작 (한국 시간)
-            <input type="datetime-local" required value={start} disabled={busy}
+            <input type="datetime-local" required value={start} disabled={busy || captchaOpen}
               onChange={event => setStart(event.target.value)} />
           </label>
           <label>종료 (한국 시간)
-            <input type="datetime-local" required value={end} disabled={busy}
+            <input type="datetime-local" required value={end} disabled={busy || captchaOpen}
               onChange={event => setEnd(event.target.value)} />
           </label>
           <label>회의 제목
-            <input className="title-input" required value={title} disabled={busy}
+            <input className="title-input" required value={title} disabled={busy || captchaOpen}
               onChange={event => setTitle(event.target.value)} placeholder="회의 제목" />
           </label>
           {/* TODO: 참여자 입력·선택 목록(사용자 검색 API는 채팅 쪽과 겹쳐 보류), 정원(room.capacity) 초과 안내 */}
-          <button type="submit" className="btn" disabled={busy || loading}>{busy ? "예약 중..." : "예약하기"}</button>
+          <button type="submit" className="btn" disabled={busy || loading || captchaOpen}>
+            {busy ? "예약 중..." : bookingAttempt?.submitted ? "예약 재시도" : "예약하기"}
+          </button>
           {error && <p role="alert" className="book-error">{error}</p>}
           {success && <p role="status" className="book-success">{success}</p>}
         </form>
       </section>}
+      {bookingAttempt && <CaptchaModal
+        key={bookingAttempt.attempt.intent_id}
+        open={captchaOpen}
+        creativeId="bmw-m3-v1"
+        challenge={bookingAttempt.attempt.challenge}
+        apiBaseUrl="/captchavatye/api"
+        assetBaseUrl={import.meta.env.VITE_CAPTCHAVATYE_SITE_URL || "http://127.0.0.1:5173"}
+        landingBaseUrl={import.meta.env.VITE_CAPTCHAVATYE_SITE_URL || "http://127.0.0.1:5173"}
+        continueLabel="예약 계속하기"
+        onComplete={result => {
+          if (result.challengeId === attemptRef.current?.attempt.challenge.challengeId) completionRef.current = result;
+        }}
+        onContinue={continueBooking}
+        onClose={() => setCaptchaOpen(false)}
+      />}
     </>
   );
 }

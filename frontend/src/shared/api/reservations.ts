@@ -1,4 +1,5 @@
 import { post, request } from "./session-client";
+import type { ChallengeResponse, CompletionResult } from "@captchavatye/react";
 
 export interface Room {
   room_id: string;
@@ -34,6 +35,18 @@ export interface CreateReservation {
   attendee_ids?: string[];
 }
 
+export interface CaptchaAttempt {
+  intent_id: string;
+  challenge: ChallengeResponse;
+  expires_at: string;
+}
+
+export interface ReservationCaptchaProof {
+  intent_id: string;
+  challenge_id: string;
+  completion_id: string;
+}
+
 export interface CreatedReservation extends CreateReservation {
   reservation_id: string;
   user_id: string;
@@ -43,8 +56,20 @@ export interface CreatedReservation extends CreateReservation {
 export const listRooms = () => request<Room[]>("/api/rooms");
 export const listReservations = (roomId: string, page: number) =>
   request<ReservationList>(`/api/rooms/${encodeURIComponent(roomId)}/reservations?page=${page}`);
-export const createReservation = (data: CreateReservation) =>
-  post<CreatedReservation>("/api/reservations", data, true);
+export const createReservation = (data: CreateReservation, captcha: ReservationCaptchaProof) =>
+  post<CreatedReservation>("/api/reservations", { ...data, captcha }, true);
+
+export const prepareReservationCaptcha = (data: CreateReservation) =>
+  post<CaptchaAttempt>("/api/reservations/captcha", data, true);
+
+export const reservationCaptchaProof = (
+  attempt: CaptchaAttempt,
+  completion: CompletionResult,
+): ReservationCaptchaProof => ({
+  intent_id: attempt.intent_id,
+  challenge_id: completion.challengeId,
+  completion_id: completion.completionId,
+});
 
 export interface TimeSlot {
   start_at: string;
