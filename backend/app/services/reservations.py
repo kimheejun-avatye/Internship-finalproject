@@ -40,7 +40,7 @@ class ReservationService:
         self.db = db
 
     def create_reservation(
-        self, user_id: UUID, data: ReservationCreateIn
+        self, user_id: UUID, data: ReservationCreateIn, *, captcha_intent=None, completion_id: str | None = None
     ) -> ReservationCreateOut:
         """요청 전용 세션에서 예약을 생성하고 commit 또는 rollback한다.
 
@@ -96,9 +96,14 @@ class ReservationService:
             )
             self.db.add(reservation)
             self.db.flush()
+            # 최초 응답과 재시도 응답의 시간대 표현도 DB 저장값으로 일치시킨다.
+            self.db.refresh(reservation)
             # TODO: 참여자 저장 — self._save_attendees(reservation.reservation_id, ...) 호출.
             # 예약과 참여자는 같은 트랜잭션에서 commit/rollback 되어야 한다.
             # 응답 구성까지 성공한 뒤 저장을 확정한다.
+            if captcha_intent is not None:
+                captcha_intent.completion_id = completion_id
+                captcha_intent.reservation_id = reservation.reservation_id
             result = ReservationCreateOut.model_validate(reservation)
             self.db.commit()
             return result

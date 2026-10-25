@@ -13,3 +13,5 @@ from app.models.reservation_attendee import ReservationAttendee
 from app.models.reservations import Reservation
 from app.models.rooms import Room, RoomStatus
 from app.models.user_sessions import UserSession
+
+from app.models.captcha_intents import CaptchaIntent

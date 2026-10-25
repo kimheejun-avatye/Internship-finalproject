@@ -103,6 +103,17 @@ class ReservationCreateIn(BaseModel):
         return self
 
 
+class CaptchaProof(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    intent_id: UUID
+    challenge_id: str = Field(strict=True, min_length=1, max_length=256)
+    completion_id: str = Field(strict=True, min_length=1, max_length=256)
+
+
+class ReservationSubmitIn(ReservationCreateIn):
+    captcha: CaptchaProof | None = None
+
+
 class ReservationCreateOut(BaseModel):
     """저장이 확정된 예약 한 건의 정보."""
 

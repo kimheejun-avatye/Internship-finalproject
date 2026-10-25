@@ -106,3 +106,52 @@ def mails(monkeypatch):
         mailer, "send_email", lambda to, subject, body: messages.append((to, body))
     )
     return messages
+
+
+@pytest.fixture
+def captcha_provider(monkeypatch):
+    """HTTP 경계만 대체하며 발급 내용과 완료 여부는 독립적으로 확인한다."""
+    import httpx
+    from uuid import uuid4
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from app.core.config import settings
+    from app.services import captcha
+
+    state = SimpleNamespace(challenges={}, calls=[], unavailable=False, malformed=False)
+    monkeypatch.setattr(settings, "captchavatye_service_key", "test-service-key-with-at-least-32-characters")
+    real_client = httpx.Client
+
+    def handler(request):
+        import json
+        body = json.loads(request.content)
+        state.calls.append((request.url.path, body))
+        if state.unavailable:
+            raise httpx.ConnectError("provider unavailable", request=request)
+        if request.url.path == "/internal/challenges":
+            challenge_id = "ch_" + uuid4().hex
+            state.challenges[challenge_id] = dict(subject=body["subject"], completed=False)
+            return httpx.Response(201, json={"challengeId": challenge_id,
+                "creative": {"creativeId": "bmw-m3-v1"},
+                "expiresAt": (clock.now() + timedelta(minutes=10)).isoformat()})
+        if state.malformed:
+            return httpx.Response(200, json={"passed": True})
+        record = state.challenges.get(body["challengeId"])
+        if (not record or not record["completed"] or record["subject"] != body["subject"]
+                or body["completionId"] != "cmp_" + body["challengeId"]):
+            return httpx.Response(403, json={"detail": {"code": "CAPTCHA_INVALID"}})
+        return httpx.Response(200, json={"passed": True, **body})
+
+    monkeypatch.setattr(captcha.httpx, "Client", lambda **kwargs:
+        real_client(transport=httpx.MockTransport(handler), **kwargs))
+    return state
+
+
+def captcha_payload(client, body, provider, completed=True):
+    result = client.post("/api/reservations/captcha", json=body)
+    assert result.status_code == 201, result.text
+    issued = result.json()
+    challenge_id = issued["challenge"]["challengeId"]
+    provider.challenges[challenge_id]["completed"] = completed
+    return {**body, "captcha": {"intent_id": issued["intent_id"], "challenge_id": challenge_id,
+                               "completion_id": "cmp_" + challenge_id}}

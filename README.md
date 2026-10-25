@@ -1,4 +1,4 @@
-# 회의실 예약 — 로그인과 developer 통합
+# 회의실 예약
 
 ## 로컬 실행
 
@@ -11,13 +11,14 @@ bash backend/scripts/migrate.sh   # 새 코드를 받을 때마다 실행
 
 cd backend
 python -m scripts.seed            # 테스트 계정·회의실 생성
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8002
 
 cd frontend
-npm run dev                       # http://localhost:5173
+npm run dev                       # http://127.0.0.1:5175
 ```
 
-- 백엔드는 8000 포트여야 한다. 프론트가 `/api` 요청을 8000으로 넘긴다.
+- 고객사 API는 8002, 화면은 5175를 기본 사용한다. CAPTCHAvatye API 8001과 분리한다.
+- 예약에는 서버 간 인증 확인이 필요하다. [CAPTCHAvatye 설정과 API 계약](docs/design/captchavatye.md)에 따라 provider DB와 서버를 준비하고 공유 비밀키를 설정한다.
 - `docker compose up -d`는 PostgreSQL과 Redis를 함께 실행한다. 기존 `.env`에도 `.env.example`의 `REDIS_PORT`, `REDIS_PASSWORD`를 추가한다.
 - Redis는 기본 `127.0.0.1:6379`에서 `.env`의 `REDIS_PASSWORD`로 접속한다. 데이터는 `redis_data` 볼륨에 AOF로 보존한다.
 - `.env`에 SMTP 계정이 없으면 회원가입 인증번호는 메일 대신 백엔드 터미널에 출력된다.

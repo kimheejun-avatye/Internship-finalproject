@@ -18,11 +18,13 @@ from app.schemas.reservations import (
     CalendarReservationResponse,
     ReservationCreateIn,
     ReservationCreateOut,
+    ReservationSubmitIn,
     ReservationListOut,
     ReservationListQuery,
     TimeSlotOut,
 )
 from app.schemas.rooms import RoomOut
+from app.services.captcha import prepare_captcha, reserve_with_captcha
 from app.services.reservations import ReservationService
 from app.services.rooms import list_rooms
 
@@ -132,12 +134,20 @@ def get_room_reservations(
 
 @router.post("/reservations", response_model=ReservationCreateOut, status_code=201)
 def create_reservation(
+    body: ReservationSubmitIn,
+    identity=Depends(authenticated, scope="function"),
+    db: Session = Depends(get_db),
+):
+    return reserve_with_captcha(db, identity[0].user_id, body)
+
+
+@router.post("/reservations/captcha", status_code=201)
+def issue_reservation_captcha(
     body: ReservationCreateIn,
     identity=Depends(authenticated, scope="function"),
     db: Session = Depends(get_db),
 ):
-    controller = ReservationController(ReservationService(db))
-    return controller.create_reservation(data=body, current_user=identity[0])
+    return prepare_captcha(db, identity[0].user_id, body)
 
 
 # 기존 동기 세션으로 컨트롤러와 서비스를 구성한다. 세션 수명은 get_db가 관리한다.

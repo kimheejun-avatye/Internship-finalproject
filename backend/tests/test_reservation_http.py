@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from conftest import signin
+from conftest import captcha_payload, signin
 from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
@@ -39,12 +39,12 @@ def payload(room_id, hour=1):
             "end_at": (clock.now() + timedelta(hours=hour + 1)).isoformat()}
 
 
-def test_login_create_and_list_with_real_cookie(client, account):
+def test_login_create_and_list_with_real_cookie(client, account, captcha_provider):
     user_id, room_id = account
     rooms = client.get("/api/rooms")
     assert rooms.status_code == 200
     assert rooms.json()[0]["room_id"] == str(room_id)
-    response = client.post("/api/reservations", json=payload(room_id))
+    response = client.post("/api/reservations", json=captcha_payload(client, payload(room_id), captcha_provider))
     assert response.status_code == 201
     created = response.json()
     assert created["user_id"] == str(user_id)
@@ -95,11 +95,11 @@ def test_session_state_is_checked_for_reservations(client, account, time, state,
         assert db.scalar(select(func.count()).select_from(Reservation)) == 0
 
 
-def test_http_conflict_validation_and_pagination(client, account):
+def test_http_conflict_validation_and_pagination(client, account, captcha_provider):
     _, room_id = account
     for hour in range(1, 8):
-        assert client.post("/api/reservations", json=payload(room_id, hour)).status_code == 201
-    assert client.post("/api/reservations", json=payload(room_id)).status_code == 409
+        assert client.post("/api/reservations", json=captcha_payload(client, payload(room_id, hour), captcha_provider)).status_code == 201
+    assert client.post("/api/reservations", json=captcha_payload(client, payload(room_id), captcha_provider)).status_code == 409
     assert client.post("/api/reservations", json={**payload(room_id), "user_id": str(uuid4())}).status_code == 422
     assert client.get(f"/api/rooms/{room_id}/reservations?page=0").status_code == 422
     assert client.get(f"/api/rooms/{uuid4()}/reservations").status_code == 404
@@ -124,11 +124,12 @@ def test_api_database_errors_do_not_expose_details(client, account, monkeypatch)
 
 
 @pytest.mark.parametrize("failure_stage", ["read", "commit"])
-def test_optional_activity_failure_does_not_hide_committed_creation(client, account, monkeypatch, failure_stage):
+def test_optional_activity_failure_does_not_hide_committed_creation(client, account, monkeypatch, failure_stage, captcha_provider):
     from sqlalchemy.exc import OperationalError
     from sqlalchemy.orm import Session
     from app.services import sessions
 
+    verified_payload = captcha_payload(client, payload(account[1]), captcha_provider)
     original_current = sessions.current
     original_commit = Session.commit
     calls = 0
@@ -150,7 +151,7 @@ def test_optional_activity_failure_does_not_hide_committed_creation(client, acco
 
     monkeypatch.setattr(sessions, "current", current)
     monkeypatch.setattr(Session, "commit", commit)
-    response = client.post("/api/reservations", json=payload(account[1]),
+    response = client.post("/api/reservations", json=verified_payload,
                            headers={"X-Session-Activity": "user"})
     assert response.status_code == 201
     with SessionLocal() as db:
